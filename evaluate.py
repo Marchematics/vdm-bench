@@ -1,0 +1,44 @@
+"""Score a submission against one VDM-Bench task."""
+import argparse
+import json
+import os
+
+import numpy as np
+
+from vdmbench import core
+
+
+def load_wl(task, wl_dir):
+    if task == "analytics":
+        z = np.load(os.path.join(wl_dir, "analytics.npz"))
+        return {k: z[k].item() if z[k].shape == () else z[k] for k in z.files}
+    if task == "quality":
+        return json.load(open(os.path.join(wl_dir, "quality.json")))
+    if task == "serving":
+        z = np.load(os.path.join(wl_dir, "serving.npz"))
+        meta = json.load(open(os.path.join(wl_dir, "serving_meta.json")))
+        return {"hard": z["hard"], "arrival": z["arrival"],
+                "tenants": meta["tenants"], "rho": meta["rho"], "cores": meta["cores"]}
+    raise SystemExit("unknown task")
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--task", required=True, choices=["analytics", "quality", "serving"])
+    ap.add_argument("--data-root", required=True)
+    ap.add_argument("--workloads", default="workloads")
+    ap.add_argument("--predictions", required=True)
+    a = ap.parse_args()
+    wl = load_wl(a.task, a.workloads)
+    pred = json.load(open(a.predictions))
+    if a.task == "analytics":
+        m = core.eval_analytics(pred, wl, a.data_root)
+    elif a.task == "quality":
+        m = core.eval_quality(pred, wl)
+    else:
+        m = core.eval_serving(pred, wl)
+    print(json.dumps(m, indent=2))
+
+
+if __name__ == "__main__":
+    main()

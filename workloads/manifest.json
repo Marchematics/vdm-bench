@@ -1,0 +1,5 @@
+{
+  "analytics_n": 100000,
+  "quality_instances": 5,
+  "serving_tenants": 8
+}
