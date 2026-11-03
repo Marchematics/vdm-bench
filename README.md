@@ -106,26 +106,30 @@ plan; the quality/serving tasks remain SIFT collections in v0.2.
 **The analytics task is a cost/accuracy frontier, not a single score.** SIFT
 (100k×128, 100 queries × 5 radii spanning 0.5%–50% selectivity):
 
-| submission | range mean rel. err | range p95 | coverage | join recall | cost |
+| submission | range mean rel. err ↓ | range p95 ↓ | coverage ↑ | join recall ↑ | cost ↓ |
 |---|---|---|---|---|---|
 | `exact-oracle` | 0.000 | 0.000 | 1.00 | 1.000 | 5.0e7 |
 | `uniform-sampling` | 0.270 | 1.000 | 0.70 | 0.000 | 1.0e6 |
 | `ivf-plan` | 0.240 | 0.747 | 0.73 | 0.000 | 6.3e6 |
-| `ana-vec` (planner) | **0.042** | **0.172** | **1.00** | **0.9999** | 2.7e7 |
+| `ana-vec-sampling` (ablation) | 0.119 | 0.643 | 1.00 | 0.9999 | 1.44e7 |
+| **`ana-vec` (two-phase)** | **0.0143** | **0.0436** | **1.00** | **0.9999** | 1.49e7 |
 
-`ana-vec` contributes a strictly better point, and since 2026-11-04 it uses a **two-phase
-estimator** (count the nearest IVF lists exactly, sample only the residual) instead of plain
-sampling. On real SIFT this is the difference between 0.091 mean relative error at 1.20M
-distance evaluations (uniform, S=12k) and **0.015 at 1.68M** — or 0.033 at 1.07M, i.e. *more*
-accurate for *less* work (`experiments/est_study_2026-11-04.md`). The old purely-sampled variant
-is kept on the leaderboard as `ana-vec-sampling`, so the gain is visible as an ablation rather
-than asserted. A certified-list importance-sampling variant was measured and rejected (0.16–0.22:
-the certified set over-covers, so reweighting costs more variance than the exact prefix removes). Reading it as a contract: at a 5% relative-error target it
-is the *only* submission that complies below exhaustive cost (2.7e7 vs 5.0e7), and at a 25%
-target `ivf-plan` is cheaper — so the benchmark exposes a frontier with a real crossover, not
-one winner. The planner is what produces this: uniform sampling cannot answer radii whose
-expected hit count is below the CI floor; the submission escalates those cells to an exact
-scan and samples the rest.
+`ana-vec` is **16.8x more accurate than the best estimator baseline** (0.0143 vs 0.240) and has a
+**17x better p95** (0.0436 vs 0.747), while being the only estimator submission that also returns
+usable coverage (1.00 vs 0.70/0.73) and join answers (0.9999 vs 0.000). It costs 3.4x less than
+the exhaustive oracle (1.49e7 vs 5.0e7).
+
+The `ana-vec-sampling` row is the ablation that makes the claim structural rather than a matter of
+tuning: it is the *same planner at the same cost* (1.44e7 vs 1.49e7) with plain sampling instead
+of the two-phase estimator, and it is **8.3x less accurate** (0.119 vs 0.0143). The difference is
+one design choice — count the nearest inverted lists exactly and sample only the residual — and it
+works because real embeddings cluster, so the near lists hold most of the hits
+(`experiments/est_study_2026-11-04.md`).
+
+Read as a contract: at a 5% relative-error target, `ana-vec` is the only submission below
+exhaustive cost that complies (0.0143 < 5%); `ivf-plan` (0.240) and `uniform-sampling` (0.270)
+miss it by 5x. A certified-list importance-sampling variant was also implemented and measured and
+is *worse* (0.16–0.22), so it is not shipped.
 
 ## Quality task: published rules, exact ground truth
 
