@@ -155,8 +155,11 @@ def analytics_anavec(data_root, wl, seed=0, dataset="sift", n_probe_lists=32, sa
         dQ = np.sqrt(core.pairwise(Q, C))
         dQX = np.einsum("ij,ij->i", X, X)
         for i, q in enumerate(Q):
-            order = np.argsort(dQ[i])[:n_probe_lists]
-            pid = np.concatenate([members[c] for c in order])
+            if n_probe_lists > 0:
+                order = np.argsort(dQ[i])[:n_probe_lists]
+                pid = np.concatenate([members[c] for c in order])
+            else:
+                pid = np.empty(0, dtype=np.int64)   # pure-sampling ablation
             mask = np.ones(n, dtype=bool)
             mask[pid] = False
             rest = np.flatnonzero(mask)
