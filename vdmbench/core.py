@@ -156,7 +156,10 @@ def build_analytics(root, dataset="sift", n=None, nq=100, seed=0, chunk=200_000)
             d = np.sqrt(np.maximum(a2 + np.einsum("ij,ij->i", xc, xc) - 2.0 * xc @ a, 0.0))
             best = min(best, float(d.min()))
         d1.append(best)
-    r_cov = float(np.median(d1) * 1.5)
+    # 1.5x the median 1-NN was loose enough that a single greedy point covered every
+    # anchor, so the ground truth saturated at covered == len(anchors) with all k picks
+    # being the same point. 1.0x keeps the task partial and therefore discriminating.
+    r_cov = float(np.median(d1) * 1.0)
     # Coverage ground truth: compute the anchors x collection mask ONCE, then run the greedy
     # over it. The natural loop recomputes all distances on each of the k iterations (30 passes
     # over 10M = 3e10 evaluations); one pass is 1e9 and the greedy then costs 30 passes over a
@@ -173,11 +176,15 @@ def build_analytics(root, dataset="sift", n=None, nq=100, seed=0, chunk=200_000)
     covered = np.zeros(A, dtype=bool)
     chosen = []
     for _ in range(k):
+        if covered.all():
+            break
         # gain per COLLECTION POINT (axis=1), not per anchor: the greedy selects points.
         # Summing axis=0 selected anchors, so the "chosen point" was really anchor index j and
         # the greedy only ever looked at the first len(anchors) rows of X -- at 10M that reported
         # exact_covered = 0 for a task that is in fact coverable.
         gain = rem.sum(axis=1, dtype=np.int64)
+        if gain.max() <= 0:
+            break
         j = int(gain.argmax())
         chosen.append(j)
         cov_j = mask[j].astype(bool)
@@ -190,10 +197,15 @@ def build_analytics(root, dataset="sift", n=None, nq=100, seed=0, chunk=200_000)
     dj0 = np.sqrt(np.maximum((Xj[:100] ** 2).sum(1)[:, None] + (Xj ** 2).sum(1)[None, :]
                              - 2.0 * Xj[:100] @ Xj.T, 0.0)).ravel()
     r_join = float(np.quantile(dj0, p))
+    # Join ground truth via an exact FAISS radius search instead of the O(n^2) python loop
+    # (the loop was 41.7 s of a 42 s build at 200k, and it is O(1e4 x 1e4 x d) regardless of n).
+    import faiss
+    flat = faiss.IndexFlatL2(Xj.shape[1])
+    flat.add(np.ascontiguousarray(Xj))
+    lims, _, II = flat.range_search(np.ascontiguousarray(Xj), float(r_join * r_join))
     pairs = []
     for i in range(len(Xj)):
-        m = np.maximum((Xj[i] ** 2).sum() + (Xj ** 2).sum(1) - 2.0 * Xj @ Xj[i], 0.0) <= r_join * r_join
-        for j in np.where(m)[0]:
+        for j in II[lims[i]:lims[i + 1]]:
             if j > i:
                 pairs.append([i, int(j)])
     pairs = np.asarray(pairs, dtype=np.int64)
