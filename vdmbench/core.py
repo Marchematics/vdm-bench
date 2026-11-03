@@ -157,19 +157,28 @@ def build_analytics(root, dataset="sift", n=None, nq=100, seed=0, chunk=200_000)
             best = min(best, float(d.min()))
         d1.append(best)
     r_cov = float(np.median(d1) * 1.5)
-    covered = np.zeros(len(anchors), dtype=bool)
+    # Coverage ground truth: compute the anchors x collection mask ONCE, then run the greedy
+    # over it. The natural loop recomputes all distances on each of the k iterations (30 passes
+    # over 10M = 3e10 evaluations); one pass is 1e9 and the greedy then costs 30 passes over a
+    # uint8 matrix. Same result, ~30x less work.
+    A = len(anchors)
+    mask = np.zeros((N, A), dtype=np.uint8)
+    a2 = (anchors ** 2).sum(1)
+    for s0 in range(0, N, chunk):
+        xc = np.asarray(X[s0:s0 + chunk], dtype=np.float32)
+        d = np.sqrt(np.maximum(a2[:, None] + np.einsum("ij,ij->i", xc, xc)[None, :]
+                               - 2.0 * anchors @ xc.T, 0.0))
+        mask[s0:s0 + len(xc)] = (d <= r_cov).T
+    rem = mask.copy()
+    covered = np.zeros(A, dtype=bool)
     chosen = []
     for _ in range(k):
-        gain = np.zeros(N, dtype=np.float64)
-        for s0 in range(0, N, chunk):
-            xc = np.asarray(X[s0:s0 + chunk], dtype=np.float32)
-            d = np.sqrt(np.maximum((anchors ** 2).sum(1)[:, None] + np.einsum("ij,ij->i", xc, xc)[None, :]
-                                   - 2.0 * anchors @ xc.T, 0.0))
-            gain[s0:s0 + len(xc)] = ((d <= r_cov) & (~covered)[:, None]).sum(axis=0)
+        gain = rem.sum(axis=0, dtype=np.int64)
         j = int(gain.argmax())
         chosen.append(j)
-        dj = np.sqrt(np.maximum((anchors ** 2).sum(1) + float(X[j] @ X[j]) - 2.0 * anchors @ X[j], 0.0))
-        covered |= dj <= r_cov
+        cov_j = mask[j].astype(bool)
+        covered |= cov_j
+        rem[:, cov_j] = 0
     exact_covered = int(covered.sum())
     # join on a slice
     Xj = np.asarray(X[: min(10_000, N // 5)], dtype=np.float32)
