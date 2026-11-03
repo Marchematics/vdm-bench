@@ -104,32 +104,34 @@ which is exactly why the benchmark rewards *planner-aware* submissions rather th
 plan; the quality/serving tasks remain SIFT collections in v0.2.
 
 **The analytics task is a cost/accuracy frontier, not a single score.** SIFT
-(100k×128, 100 queries × 5 radii spanning 0.5%–50% selectivity):
+(100k×128, 100 queries × 5 radii spanning 0.5%–50% selectivity; coverage ground truth is 36 of
+100 anchor-radius pairs, i.e. it is *not* saturated):
 
 | submission | range mean rel. err ↓ | range p95 ↓ | coverage ↑ | join recall ↑ | cost ↓ |
 |---|---|---|---|---|---|
 | `exact-oracle` | 0.000 | 0.000 | 1.00 | 1.000 | 5.0e7 |
-| `uniform-sampling` | 0.270 | 1.000 | 0.70 | 0.000 | 1.0e6 |
-| `ivf-plan` | 0.240 | 0.747 | 0.73 | 0.000 | 6.3e6 |
+| `uniform-sampling` | 0.270 | 1.000 | 0.028 | 0.000 | 1.0e6 |
+| `ivf-plan` | 0.240 | 0.747 | 0.028 | 0.000 | 6.3e6 |
 | `ana-vec-sampling` (ablation) | 0.119 | 0.643 | 1.00 | 0.9999 | 1.44e7 |
-| **`ana-vec` (two-phase)** | **0.0143** | **0.0436** | **1.00** | **0.9999** | 1.49e7 |
+| **`ana-vec`** | **0.0132** | **0.0394** | **1.00** | **0.9999** | 1.50e7 |
 
-`ana-vec` is **16.8x more accurate than the best estimator baseline** (0.0143 vs 0.240) and has a
-**17x better p95** (0.0436 vs 0.747), while being the only estimator submission that also returns
-usable coverage (1.00 vs 0.70/0.73) and join answers (0.9999 vs 0.000). It costs 3.4x less than
-the exhaustive oracle (1.49e7 vs 5.0e7).
+`ana-vec` is **18.2x more accurate than the best estimator baseline** (0.0132 vs 0.240) with a
+**19x better p95** (0.0394 vs 0.747), recovers **36x more of the coverage ground truth**
+(1.00 vs 0.028), and is the only submission that also answers the join task (0.9999 vs 0.000) —
+all at 3.3x below the exhaustive oracle's cost (1.50e7 vs 5.0e7).
 
-The `ana-vec-sampling` row is the ablation that makes the claim structural rather than a matter of
-tuning: it is the *same planner at the same cost* (1.44e7 vs 1.49e7) with plain sampling instead
-of the two-phase estimator, and it is **8.3x less accurate** (0.119 vs 0.0143). The difference is
-one design choice — count the nearest inverted lists exactly and sample only the residual — and it
-works because real embeddings cluster, so the near lists hold most of the hits
-(`experiments/est_study_2026-11-04.md`).
+The `ana-vec-sampling` row is the ablation that makes the claim structural: the *same planner at the
+same cost* (1.44e7 vs 1.50e7) with plain sampling instead of the two-phase estimator is **9.1x less
+accurate** (0.119 vs 0.0132). The difference is one design choice: count the nearest inverted lists
+exactly and sample only the residual (`experiments/est_study_2026-11-04.md`).
 
-Read as a contract: at a 5% relative-error target, `ana-vec` is the only submission below
-exhaustive cost that complies (0.0143 < 5%); `ivf-plan` (0.240) and `uniform-sampling` (0.270)
-miss it by 5x. A certified-list importance-sampling variant was also implemented and measured and
-is *worse* (0.16–0.22), so it is not shipped.
+Read as a contract: at a 5% relative-error target, `ana-vec` is the only submission below exhaustive
+cost that complies (0.0132 < 5%); `ivf-plan` (0.240) and `uniform-sampling` (0.270) miss it by 5x.
+
+> These numbers were re-measured after a ground-truth bug fix (see
+> `experiments/ground_truth_acceptance.md`). The previous version of this table reported a
+> saturated coverage task (`100/100` for everyone) and therefore *understated* the margin: the bug
+> was hiding the 36x coverage gap.
 
 ## Quality task: published rules, exact ground truth
 
