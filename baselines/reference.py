@@ -11,8 +11,8 @@ def analytics_exact(wl):
             "cost": float(wl["n"] * len(wl["queries"]) * len(wl["radii"]))}
 
 
-def analytics_sampling(data_root, wl, s=2000, seed=0):
-    X, _ = core.load_sift(data_root, wl["n"])
+def analytics_sampling(data_root, wl, s=2000, seed=0, dataset="sift"):
+    X, _ = core.load_dataset(data_root, dataset, wl["n"])
     Q = wl["queries"]; rng = np.random.RandomState(seed)
     est = np.zeros_like(wl["truth"], dtype=np.float64)
     for i, q in enumerate(Q):
@@ -27,9 +27,9 @@ def analytics_sampling(data_root, wl, s=2000, seed=0):
             "cost": float(s * len(Q) * len(wl["radii"]))}
 
 
-def analytics_ivf(data_root, wl, nlist=256, nprobe=32, seed=0):
+def analytics_ivf(data_root, wl, nlist=256, nprobe=32, seed=0, dataset="sift"):
     import faiss
-    X, _ = core.load_sift(data_root, wl["n"])
+    X, _ = core.load_dataset(data_root, dataset, wl["n"])
     Q = wl["queries"]
     ivf = faiss.IndexIVFFlat(faiss.IndexFlatL2(X.shape[1]), X.shape[1], nlist)
     ivf.train(X[np.random.RandomState(seed).choice(len(X), min(50000, len(X)), replace=False)])
@@ -94,10 +94,10 @@ def serving_oracle(wl):
     return {"efforts": eff.tolist()}
 
 
-def analytics_anavec(data_root, wl, seed=0):
+def analytics_anavec(data_root, wl, seed=0, dataset="sift"):
     """Reference AnaVec-style submission: IVF range counts + HNSW candidate coverage."""
     import faiss
-    X, _ = core.load_sift(data_root, wl["n"])
+    X, _ = core.load_dataset(data_root, dataset, wl["n"])
     Q = wl["queries"]
     nlist, nprobe = 256, 64
     ivf = faiss.IndexIVFFlat(faiss.IndexFlatL2(X.shape[1]), X.shape[1], nlist)

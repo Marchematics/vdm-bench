@@ -1,0 +1,4 @@
+{
+  "dataset": "mnist",
+  "analytics_n": 60000
+}

@@ -19,6 +19,19 @@ def _load(path):
     return np.load(path)
 
 
+def load_dataset(root, name="sift", n=None):
+    """Load (X, Q) for a supported dataset: sift | mnist | scifact."""
+    if name == "sift":
+        return load_sift(root, n)
+    if name == "mnist":
+        return load_mnist(root, n)
+    if name == "scifact":
+        X = np.load(os.path.join(root, "scifact", "train.npy")).astype(np.float32)
+        Q = np.load(os.path.join(root, "scifact", "test.npy")).astype(np.float32)
+        return (X[:n] if n else X), Q
+    raise ValueError(f"unknown dataset {name}")
+
+
 def load_sift(root, n=None):
     X = np.load(os.path.join(root, "sift", "train.npy"), mmap_mode="r")
     Q = np.load(os.path.join(root, "sift", "test.npy")).astype(np.float32)
@@ -60,8 +73,10 @@ def pairwise(Q, X):
 # --------------------------------------------------------------------------- #
 # Analytics workload
 # --------------------------------------------------------------------------- #
-def build_analytics(root, n=100_000, nq=100, seed=0):
-    X, Q = load_sift(root, n)
+def build_analytics(root, dataset="sift", n=None, nq=100, seed=0):
+    if n is None:
+        n = {"sift": 100_000, "mnist": 60_000, "scifact": None}[dataset]
+    X, Q = load_dataset(root, dataset, n)
     Q = Q[:nq]
     rng = np.random.RandomState(seed)
     # pooled distance quantiles
@@ -95,7 +110,7 @@ def build_analytics(root, n=100_000, nq=100, seed=0):
         covered |= D[:, j] <= r_cov
     exact_covered = int(covered.sum())
     # join on a 10k slice
-    Xj = X[:10_000]
+    Xj = X[: min(10_000, len(X) // 5)]
     p = (5.0 * len(Xj) / 2.0) / (len(Xj) * (len(Xj) - 1) / 2.0)
     dj = np.sqrt(pairwise(Xj[:100], Xj)).ravel()
     r_join = float(np.quantile(dj, p))
@@ -116,8 +131,8 @@ def build_analytics(root, n=100_000, nq=100, seed=0):
     }
 
 
-def eval_analytics(pred, wl, root):
-    X, _ = load_sift(root, wl["n"])
+def eval_analytics(pred, wl, root, dataset="sift"):
+    X, _ = load_dataset(root, dataset, wl["n"])
     out = {}
     # range counts
     rc = np.asarray(pred.get("range_count", []), dtype=np.float64)

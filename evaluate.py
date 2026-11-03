@@ -27,12 +27,14 @@ def main():
     ap.add_argument("--task", required=True, choices=["analytics", "quality", "serving"])
     ap.add_argument("--data-root", required=True)
     ap.add_argument("--workloads", default="workloads")
+    ap.add_argument("--dataset", default="sift", choices=["sift", "mnist", "scifact"])
     ap.add_argument("--predictions", required=True)
     a = ap.parse_args()
-    wl = load_wl(a.task, a.workloads)
+    wdir = os.path.join(a.workloads, a.dataset) if os.path.isdir(os.path.join(a.workloads, a.dataset)) else a.workloads
+    wl = load_wl(a.task, wdir)
     pred = json.load(open(a.predictions))
     if a.task == "analytics":
-        m = core.eval_analytics(pred, wl, a.data_root)
+        m = core.eval_analytics(pred, wl, a.data_root, dataset=a.dataset)
     elif a.task == "quality":
         m = core.eval_quality(pred, wl)
     else:
