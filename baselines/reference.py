@@ -128,7 +128,14 @@ def analytics_anavec(data_root, wl, seed=0, dataset="sift", n_probe_lists=32, sa
     km = faiss.Kmeans(X.shape[1], nlist, niter=10, verbose=False, seed=seed)
     km.train(np.ascontiguousarray(X[: min(80_000, n)]))
     C = km.centroids.astype(np.float32)
-    assign = core.pairwise(X, C).argmin(1)
+    # Assign with faiss, not a numpy pairwise: at 10M x 10,000 centroids the numpy product
+    # is 1.28e13 flops and dominated the whole run (~21 min of pure BLAS).
+    qflat = faiss.IndexFlatL2(X.shape[1])
+    qflat.add(C)
+    assign = np.empty(n, dtype=np.int64)
+    for s0 in range(0, n, 100_000):
+        _, idx = qflat.search(np.ascontiguousarray(X[s0:s0 + 100_000]), 1)
+        assign[s0:s0 + len(idx)] = idx.ravel()
     members = [np.flatnonzero(assign == c) for c in range(nlist)]
     dQ = np.sqrt(core.pairwise(Q, C))
     dQX = np.einsum("ij,ij->i", X, X)
