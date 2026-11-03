@@ -245,7 +245,23 @@ SURFACE_RECALL = np.array([0.4836, 0.6707, 0.8276, 0.9328, 0.9840, 0.9979, 0.999
 SURFACE_P50 = np.array([0.220, 0.397, 0.549, 0.959, 2.048, 3.323, 6.240, 16.887, 47.259])
 
 
-def build_serving(seed=0, n_tenants=8, n_per_tenant=2000, rho=1.6, cores=8):
+def build_serving(seed=0, n_tenants=8, n_per_tenant=2000, rhos=(0.70, 1.00, 1.15),
+                  cores=8, skew=None, eval_seed=None):
+    """Multi-tenant serving workload under a joint latency+recall contract.
+
+    Offered load is defined *relative to capacity*: ``rho`` is the aggregate utilisation
+    of ``cores`` cores at the per-tenant base effort. ``skew`` re-weights the per-tenant
+    arrival rates (a hot tenant); with ``skew=None`` load is uniform. The interesting
+    regime for an SLO contract is aggregate ``rho < 1`` *with* skew: nothing is globally
+    overloaded, but one tenant's demand exceeds its fair share and, without isolation,
+    starves the others.
+
+    A submission returns a single per-query *policy*; it is scored across every load
+    regime in ``rhos`` (mean and worst-case ``slo_pass``). Two independent arrival
+    traces are emitted per regime: ``arrival`` (pilot, visible to submissions) and
+    ``arrival_eval`` (held-out realisation used for scoring). A submission must therefore
+    return a policy that generalises, not a replay of one trace.
+    """
     rng = np.random.RandomState(seed)
     classes = [(3.3, 0.60), (6.5, 0.70), (10.9, 0.80), (21.8, 0.85),
                (43.7, 0.90), (87.4, 0.90), (218.0, 0.80), (218.0, 0.90)]
@@ -253,28 +269,110 @@ def build_serving(seed=0, n_tenants=8, n_per_tenant=2000, rho=1.6, cores=8):
                for i in range(n_tenants)]
     hard = rng.rand(n_tenants, n_per_tenant) < 0.3
     score = 0.6 * hard.astype(np.float32) + 0.4 * rng.rand(n_tenants, n_per_tenant).astype(np.float32)
-    # base nprobe for R (bigger than needed for hard queries)
+
     def nprobe_for(R):
         return int(SURFACE_NPROBE[np.argmax(SURFACE_RECALL >= R)])
-    arrival = np.zeros((n_tenants, n_per_tenant), dtype=np.float32)
-    for i in range(n_tenants):
-        rate = 40.0  # queries/s offered per tenant
-        arrival[i] = np.cumsum(rng.exponential(1.0 / rate, n_per_tenant))
-    return {"tenants": tenants, "hard": hard, "score": score, "arrival": arrival,
-            "rho": rho, "cores": cores, "surface": {"nprobe": SURFACE_NPROBE.tolist(),
-                                                     "recall": SURFACE_RECALL.tolist(),
-                                                     "p50": SURFACE_P50.tolist()}}
+
+    def p50_for(npb):
+        return float(SURFACE_P50[int(np.argmin(np.abs(SURFACE_NPROBE - npb)))])
+
+    base_ms = np.array([0.7 * p50_for(nprobe_for(t["R"]))
+                        + 0.3 * p50_for(min(256, 2 * nprobe_for(t["R"])))
+                        for t in tenants], dtype=np.float64)
+    mean_base_ms = float(base_ms.mean())
+    if skew is None:
+        skew = np.ones(n_tenants, dtype=np.float64)
+    skew = np.asarray(skew, dtype=np.float64)
+    rhos = np.atleast_1d(np.asarray(rhos, dtype=np.float64))
+
+    def trace(rate_vec, seed_i):
+        r = np.random.RandomState(seed_i)
+        a = np.zeros((n_tenants, n_per_tenant), dtype=np.float32)
+        for i in range(n_tenants):
+            a[i] = np.cumsum(r.exponential(1.0 / rate_vec[i], n_per_tenant))
+        return a
+
+    rates = np.zeros((len(rhos), n_tenants), dtype=np.float64)
+    arrival = np.zeros((len(rhos), n_tenants, n_per_tenant), dtype=np.float32)
+    arrival_eval = np.zeros_like(arrival)
+    ev_seed = 1000 + 7 if eval_seed is None else int(eval_seed)
+    for k, rho in enumerate(rhos):
+        unit = rho * cores * 1000.0 / float((skew * base_ms).sum())
+        rates[k] = unit * skew
+        arrival[k] = trace(rates[k], seed + 100 * k)
+        arrival_eval[k] = trace(rates[k], ev_seed + 100 * k)
+    return {"tenants": tenants, "hard": hard, "score": score,
+            "arrival": arrival, "arrival_eval": arrival_eval,
+            "rhos": rhos.tolist(), "cores": cores, "skew": skew.tolist(),
+            "rates_qps": rates.tolist(), "mean_base_service_ms": mean_base_ms,
+            "surface": {"nprobe": SURFACE_NPROBE.tolist(),
+                        "recall": SURFACE_RECALL.tolist(),
+                        "p50": SURFACE_P50.tolist()}}
+
+
+def _simulate(arr, service, cores, priority=None):
+    """Non-preemptive multi-core queueing simulation.
+
+    ``arr`` (T, nq) arrival times in seconds; ``service`` (T, nq) service times in ms;
+    ``priority`` (T, nq) optional, *higher is served first* (e.g. EDF gives higher
+    priority to tighter deadlines). Without ``priority`` this is plain FCFS.
+    Returns per-query latency in ms.
+    """
+    T, nq = arr.shape
+    lat = np.zeros((T, nq), dtype=np.float32)
+    pri = np.zeros((T, nq), dtype=np.float64) if priority is None else np.asarray(priority, dtype=np.float64)
+    flat = [(float(arr[i, j]), int(i), int(j)) for i in range(T) for j in range(nq)]
+    flat.sort()
+    free = [0.0] * cores
+    import heapq
+    waiting = []          # (-priority, seq, i, j, arrival_ms)
+    seq = 0
+    k = 0
+    n = len(flat)
+    while k < n or waiting:
+        if not waiting:
+            t_next = free[int(np.argmin(free))]
+            a_ms = flat[k][0] * 1000.0
+            if a_ms > t_next:
+                free[int(np.argmin(free))] = a_ms
+        # admit every arrival that is already waiting at the earliest free core
+        t_min = min(free)
+        while k < n and flat[k][0] * 1000.0 <= t_min + 1e-9:
+            at, i, j = flat[k]
+            heapq.heappush(waiting, (-pri[i, j], seq, at, i, j))
+            seq += 1
+            k += 1
+        if not waiting:
+            continue
+        negp, _, at, i, j = heapq.heappop(waiting)
+        c = int(np.argmin(free))
+        start = max(at * 1000.0, free[c])
+        free[c] = start + float(service[i, j])
+        lat[i, j] = free[c] - at * 1000.0
+    return lat
 
 
 def eval_serving(pred, wl):
+    """Score a serving submission across every load regime in the workload.
+
+    A submission may return ``efforts`` (T,nq) and, optionally, ``priority`` (T,nq)
+    where *higher* priority is served first (deadline-aware scheduling, e.g. EDF).
+    Omitting ``priority`` gives plain FCFS. Scoring uses the held-out arrival traces.
+    """
     efforts = np.asarray(pred.get("efforts", []), dtype=np.int64)
     nT, nq = wl["hard"].shape
     if efforts.shape != (nT, nq):
         return {"error": f"efforts shape {efforts.shape} != {(nT,nq)}"}
-    # per-query service and recall
+    pri = pred.get("priority")
+    if pri is not None:
+        pri = np.asarray(pri, dtype=np.float64)
+        if pri.shape != (nT, nq):
+            return {"error": f"priority shape {pri.shape} != {(nT,nq)}"}
+
     def lookup(arr, npb):
         idx = np.argmin(np.abs(SURFACE_NPROBE - npb))
         return arr[idx]
+
     service = np.zeros((nT, nq), dtype=np.float32)
     recall = np.zeros((nT, nq), dtype=np.float32)
     for i in range(nT):
@@ -286,23 +384,25 @@ def eval_serving(pred, wl):
                 r2 = float(lookup(SURFACE_RECALL, max(1, npb // 2)))
                 r = min(r, r2)
             recall[i, j] = r
-    # FCFS simulation across cores
-    events = []
-    for i in range(nT):
-        for j in range(nq):
-            events.append((float(wl["arrival"][i, j]), i, j))
-    events.sort()
-    cores = [0.0] * wl["cores"]  # next free time (ms)
-    lat = np.zeros((nT, nq), dtype=np.float32)
-    for t, i, j in events:
-        k = int(np.argmin(cores))
-        start = max(t * 1000.0, cores[k])  # ms
-        cores[k] = start + service[i, j]
-        lat[i, j] = cores[k] - t * 1000.0
-    L = np.array([[wl["tenants"][i]["L"]] * nq for i in range(nT)])
-    R = np.array([[wl["tenants"][i]["R"]] * nq for i in range(nT)])
-    ok = (lat <= L) & (recall >= R)
-    return {"slo_pass": float(ok.mean()), "p95_latency": float(np.percentile(lat, 95)),
-            "p99_latency": float(np.percentile(lat, 99)),
-            "recall_slo": float((recall >= R).mean()),
-            "goodput_qps": float(ok.sum() / (wl["arrival"].max() - wl["arrival"].min() + 1e-9))}
+
+    L = np.array([[wl["tenants"][i]["L"]] * nq for i in range(nT)], dtype=np.float32)
+    R = np.array([[wl["tenants"][i]["R"]] * nq for i in range(nT)], dtype=np.float32)
+    arr_all = np.asarray(wl.get("arrival_eval", wl["arrival"]))
+    if arr_all.ndim == 2:
+        arr_all = arr_all[None, :, :]
+
+    passes, p95s, p99s, recalls, goodputs = [], [], [], [], []
+    for arr in arr_all:
+        lat = _simulate(arr, service, wl["cores"], pri)
+        ok = (lat <= L) & (recall >= R)
+        passes.append(float(ok.mean()))
+        p95s.append(float(np.percentile(lat, 95)))
+        p99s.append(float(np.percentile(lat, 99)))
+        recalls.append(float((recall >= R).mean()))
+        goodputs.append(float(ok.sum() / (arr.max() - arr.min() + 1e-9)))
+    return {"slo_pass": float(np.mean(passes)),
+            "slo_pass_worst": float(np.min(passes)),
+            "p95_latency": float(np.mean(p95s)),
+            "p99_latency": float(np.mean(p99s)),
+            "recall_slo": float(np.mean(recalls)),
+            "goodput_qps": float(np.mean(goodputs))}

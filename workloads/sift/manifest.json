@@ -1,0 +1,9 @@
+{
+  "dataset": "sift",
+  "serving_tenants": 8,
+  "serving_rhos": [
+    0.7,
+    1.0,
+    1.15
+  ]
+}

@@ -17,8 +17,16 @@ def load_wl(task, wl_dir):
     if task == "serving":
         z = np.load(os.path.join(wl_dir, "serving.npz"))
         meta = json.load(open(os.path.join(wl_dir, "serving_meta.json")))
-        return {"hard": z["hard"], "arrival": z["arrival"],
-                "tenants": meta["tenants"], "rho": meta["rho"], "cores": meta["cores"]}
+        wl = {"hard": z["hard"], "arrival": z["arrival"],
+              "tenants": meta["tenants"], "cores": meta["cores"],
+              "rhos": meta.get("rhos", [meta.get("rho")])}
+        for k in ("score", "arrival_eval"):
+            if k in z.files:
+                wl[k] = z[k]
+        for k in ("skew", "rates_qps"):
+            if k in meta:
+                wl[k] = meta[k]
+        return wl
     raise SystemExit("unknown task")
 
 

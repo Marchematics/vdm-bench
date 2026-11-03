@@ -17,9 +17,16 @@ def load_wl(task, wl_dir):
         return json.load(open(os.path.join(wl_dir, "quality.json")))
     z = np.load(os.path.join(wl_dir, "serving.npz"))
     meta = json.load(open(os.path.join(wl_dir, "serving_meta.json")))
-    return {"hard": z["hard"], "score": z["score"] if "score" in z.files else None,
-            "arrival": z["arrival"], "tenants": meta["tenants"],
-            "rho": meta["rho"], "cores": meta["cores"]}
+    wl = {"hard": z["hard"], "score": z["score"] if "score" in z.files else None,
+          "arrival": z["arrival"], "tenants": meta["tenants"],
+          "cores": meta["cores"], "rhos": meta.get("rhos", [meta.get("rho")])}
+    for k in ("score", "arrival_eval"):
+        if k in z.files:
+            wl[k] = z[k]
+    for k in ("skew", "rates_qps"):
+        if k in meta:
+            wl[k] = meta[k]
+    return wl
 
 
 def main():
@@ -29,25 +36,28 @@ def main():
     ap.add_argument("--out", default="results")
     ap.add_argument("--full", action="store_true", help="include the optional AnaVec/VecProf reference submissions")
     ap.add_argument("--dataset", default="sift", choices=["sift", "mnist", "scifact"])
+    ap.add_argument("--only", default="all",
+                    choices=["all", "analytics", "quality", "serving"])
     a = ap.parse_args()
     os.makedirs(a.out, exist_ok=True)
     rows = []
 
     wdir = os.path.join(a.workloads, a.dataset) if os.path.isdir(os.path.join(a.workloads, a.dataset)) else a.workloads
-    wa = load_wl("analytics", wdir)
-    analytics = [("exact-oracle", ref.analytics_exact),
-                 ("uniform-sampling", lambda w: ref.analytics_sampling(a.data_root, w, dataset=a.dataset)),
-                 ("ivf-plan", lambda w: ref.analytics_ivf(a.data_root, w, dataset=a.dataset))]
-    if a.full:
-        analytics.append(("ana-vec", lambda w: ref.analytics_anavec(a.data_root, w, dataset=a.dataset)))
-    for name, fn in analytics:
-        pred = fn(wa)
-        m = core.eval_analytics(pred, wa, a.data_root, dataset=a.dataset)
-        rows.append({"task": "analytics", "submission": name, **m})
-        os.makedirs(os.path.join("submissions", name), exist_ok=True)
-        json.dump(pred, open(os.path.join("submissions", name, "predictions.json"), "w"))
+    if a.only in ("all", "analytics") and os.path.exists(os.path.join(wdir, "analytics.npz")):
+        wa = load_wl("analytics", wdir)
+        analytics = [("exact-oracle", ref.analytics_exact),
+                     ("uniform-sampling", lambda w: ref.analytics_sampling(a.data_root, w, dataset=a.dataset)),
+                     ("ivf-plan", lambda w: ref.analytics_ivf(a.data_root, w, dataset=a.dataset))]
+        if a.full:
+            analytics.append(("ana-vec", lambda w: ref.analytics_anavec(a.data_root, w, dataset=a.dataset)))
+        for name, fn in analytics:
+            pred = fn(wa)
+            m = core.eval_analytics(pred, wa, a.data_root, dataset=a.dataset)
+            rows.append({"task": "analytics", "submission": name, **m})
+            os.makedirs(os.path.join("submissions", name), exist_ok=True)
+            json.dump(pred, open(os.path.join("submissions", name, "predictions.json"), "w"))
 
-    if os.path.exists(os.path.join(wdir, "quality.json")):
+    if a.only in ("all", "quality") and os.path.exists(os.path.join(wdir, "quality.json")):
         wq = load_wl("quality", wdir)
         quality = [("quality-oracle", ref.quality_exact), ("quality-naive", ref.quality_naive)]
         if a.full:
@@ -59,13 +69,24 @@ def main():
             os.makedirs(os.path.join("submissions", name), exist_ok=True)
             json.dump(pred, open(os.path.join("submissions", name, "predictions.json"), "w"))
 
-    if os.path.exists(os.path.join(wdir, "serving.npz")):
+    if a.only in ("all", "serving") and os.path.exists(os.path.join(wdir, "serving.npz")):
         ws = load_wl("serving", wdir)
         for name, fn in [("serving-static", ref.serving_static),
                          ("serving-adaptive", ref.serving_adaptive),
                          ("serving-signal", ref.serving_signal),
                          ("serving-oracle", ref.serving_oracle)]:
             pred = fn(ws)
+            m = core.eval_serving(pred, ws)
+            rows.append({"task": "serving", "submission": name, **m})
+            os.makedirs(os.path.join("submissions", name), exist_ok=True)
+            json.dump(pred, open(os.path.join("submissions", name, "predictions.json"), "w"))
+        if a.full:
+            for name, fn in [("serving-edf", ref.serving_edf)]:
+                pred = fn(ws)
+                m = core.eval_serving(pred, ws)
+                rows.append({"task": "serving", "submission": name, **m})
+            name = "vecslo-ref"
+            pred = ref.serving_vecslo(ws)
             m = core.eval_serving(pred, ws)
             rows.append({"task": "serving", "submission": name, **m})
             os.makedirs(os.path.join("submissions", name), exist_ok=True)
