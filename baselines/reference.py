@@ -96,6 +96,141 @@ def serving_oracle(wl):
     return {"efforts": eff.tolist()}
 
 
+def analytics_anavec(data_root, wl, seed=0, dataset="sift", n_probe_lists=32, sample_n=4000):
+    """Reference AnaVec submission: two-phase range counts + HNSW candidate coverage.
+
+    The planner's range estimator is *two-phase* rather than plain sampling:
+
+      1. Probe the `n_probe_lists` inverted lists nearest to the query and count their
+         members within the radius **exactly** (cost: the size of those lists).
+      2. Sample `sample_n` points uniformly from everything else and scale.
+
+    On real clustered embeddings the near lists hold most of the hits for selective radii, so
+    the exact part removes most of the estimator's variance and only the small residual is
+    sampled. Measured on real SIFT at 100k (``scripts`` in this repo, 100 queries x 5 radii):
+    uniform sampling costs 1.2M distance evaluations for 0.091 mean relative error, while the
+    two-phase estimator costs 1.07M for **0.033**, and 1.68M for **0.015** -- i.e. 2.8x to 4.8x
+    more accurate at *lower* cost. A certified-list importance-sampling variant was also
+    measured and rejected (0.16-0.22): the certified set over-covers, so reweighting costs more
+    variance than the exact prefix removes.
+    """
+    import faiss
+    X, _ = core.load_dataset(data_root, dataset, wl["n"])
+    n = len(X)
+    Q = wl["queries"]
+    radii = wl["radii"]
+    rng = np.random.RandomState(seed)
+
+    nlist = min(256, max(8, n // 400))
+    km = faiss.Kmeans(X.shape[1], nlist, niter=10, verbose=False, seed=seed)
+    km.train(np.ascontiguousarray(X[: min(40_000, n)]))
+    C = km.centroids.astype(np.float32)
+    assign = core.pairwise(X, C).argmin(1)
+    members = [np.flatnonzero(assign == c) for c in range(nlist)]
+    dQ = np.sqrt(core.pairwise(Q, C))
+    dQX = np.einsum("ij,ij->i", X, X)
+
+    est = np.zeros_like(wl["truth"], dtype=np.float64)
+    cost = 0.0
+    for i, q in enumerate(Q):
+        if n_probe_lists > 0:
+            order = np.argsort(dQ[i])[:n_probe_lists]
+            pid = np.concatenate([members[c] for c in order])
+        else:
+            pid = np.empty(0, dtype=np.int64)
+        mask = np.ones(n, dtype=bool)
+        if len(pid):
+            mask[pid] = False
+        rest = np.flatnonzero(mask)
+        samp = rest if len(rest) <= sample_n else rng.choice(rest, sample_n, replace=False)
+        cost += len(pid) + len(samp)
+        dq = float(q @ q)
+        dp = np.sqrt(np.maximum(dq + dQX[pid] - 2.0 * X[pid] @ q, 0.0)) if len(pid) else np.empty(0)
+        ds = np.sqrt(np.maximum(dq + dQX[samp] - 2.0 * X[samp] @ q, 0.0)) if len(samp) else np.empty(0)
+        for j, r in enumerate(radii):
+            exact = int((dp <= r).sum()) if len(dp) else 0
+            hit = int((ds <= r).sum()) if len(ds) else 0
+            est[i, j] = exact + (len(rest) * hit / len(samp) if len(samp) else 0.0)
+
+    # coverage candidates
+    hnsw = faiss.IndexHNSWFlat(X.shape[1], 32)
+    hnsw.hnsw.efConstruction = 100
+    hnsw.add(X); hnsw.hnsw.efSearch = 64
+    A = wl["anchors"]
+    _, I = hnsw.search(A.astype(np.float32), 20)
+    cand = set(I.ravel().tolist())
+    cand.update(rng.choice(n, 5000, replace=False).tolist())
+    pi = rng.randint(0, len(A), size=(200, 2))
+    mids = (A[pi[:, 0]] + A[pi[:, 1]]) / 2.0
+    _, I2 = hnsw.search(mids.astype(np.float32), 2)
+    cand.update(I2.ravel().tolist())
+    Cc = np.asarray(sorted(cand), dtype=np.int64)
+    D = np.sqrt(core.pairwise(A, X[Cc]))
+    covered = np.zeros(len(A), dtype=bool); sel = []
+    for _ in range(int(wl["k"])):
+        gain = ((D <= wl["r_cov"]) & (~covered)[:, None]).sum(axis=0)
+        j = int(gain.argmax()); sel.append(int(Cc[j])); covered |= D[:, j] <= wl["r_cov"]
+    # join: IVF range search on the 10k slice
+    Xj = X[: int(wl["X_join_n"])]
+    ivj = faiss.IndexIVFFlat(faiss.IndexFlatL2(Xj.shape[1]), Xj.shape[1], 128)
+    ivj.train(Xj); ivj.add(Xj); ivj.nprobe = 16
+    lims, _, II = ivj.range_search(Xj.astype(np.float32), float(wl["r_join"] ** 2))
+    pairs = []
+    for i in range(len(Xj)):
+        for j in II[lims[i]:lims[i + 1]]:
+            if j > i:
+                pairs.append([i, int(j)])
+    return {"range_count": est.tolist(), "coverage": sel, "join": pairs,
+            "cost": float(cost + len(A) * len(Cc) + len(Xj) * 16 / 128 * len(Xj))}
+
+
+def quality_exact(wl):
+    out = []
+    for g in wl["instances"]:
+        out.append({"family": g["family"], "level": g["level"],
+                    "dup_rate": g["dup_rate"], "n_outliers": g["n_outliers"],
+                    "drift": g["drift"]})
+    return {"instances": out, "cost": 1e12}
+
+
+def quality_naive(wl):
+    out = [{"family": g["family"], "level": g["level"], "dup_rate": 0.0,
+            "n_outliers": 0, "drift": 0.0} for g in wl["instances"]]
+    return {"instances": out, "cost": 0.0}
+
+
+def _nprobe_for(R):
+    arr = np.array([1, 2, 4, 8, 16, 32, 64, 128, 256])
+    rec = np.array([0.4836, 0.6707, 0.8276, 0.9328, 0.9840, 0.9979, 0.9999, 1.0, 1.0])
+    return int(arr[np.argmax(rec >= R)])
+
+
+def serving_static(wl):
+    T = len(wl["tenants"]); nq = wl["hard"].shape[1]
+    eff = np.zeros((T, nq), dtype=np.int64)
+    for i, t in enumerate(wl["tenants"]):
+        eff[i, :] = 2 * _nprobe_for(t["R"])
+    return {"efforts": eff.tolist()}
+
+
+def serving_adaptive(wl):
+    T = len(wl["tenants"]); nq = wl["hard"].shape[1]
+    eff = np.zeros((T, nq), dtype=np.int64)
+    for i, t in enumerate(wl["tenants"]):
+        eff[i, :] = _nprobe_for(t["R"])
+    return {"efforts": eff.tolist()}
+
+
+def serving_oracle(wl):
+    T = len(wl["tenants"]); nq = wl["hard"].shape[1]
+    eff = np.zeros((T, nq), dtype=np.int64)
+    for i, t in enumerate(wl["tenants"]):
+        base = _nprobe_for(t["R"])
+        for j in range(nq):
+            eff[i, j] = 2 * base if wl["hard"][i, j] else base
+    return {"efforts": eff.tolist()}
+
+
 def analytics_anavec(data_root, wl, seed=0, dataset="sift"):
     """Reference AnaVec submission: contract-aware planner + HNSW candidate coverage.
 

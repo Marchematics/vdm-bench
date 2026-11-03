@@ -50,6 +50,9 @@ def main():
                      ("ivf-plan", lambda w: ref.analytics_ivf(a.data_root, w, dataset=a.dataset))]
         if a.full:
             analytics.append(("ana-vec", lambda w: ref.analytics_anavec(a.data_root, w, dataset=a.dataset)))
+            # ablation: the same planner with plain sampling (no exact IVF prefix)
+            analytics.append(("ana-vec-sampling", lambda w: ref.analytics_anavec(
+                a.data_root, w, dataset=a.dataset, n_probe_lists=0, sample_n=12000)))
         for name, fn in analytics:
             pred = fn(wa)
             m = core.eval_analytics(pred, wa, a.data_root, dataset=a.dataset)
