@@ -113,9 +113,14 @@ plan; the quality/serving tasks remain SIFT collections in v0.2.
 | `ivf-plan` | 0.240 | 0.747 | 0.73 | 0.000 | 6.3e6 |
 | `ana-vec` (planner) | **0.042** | **0.172** | **1.00** | **0.9999** | 2.7e7 |
 
-`ana-vec` contributes a strictly better point: **5.7x lower error than the best estimator
-baseline** (0.042 vs 0.240) while also being the only estimator submission that returns
-usable coverage and join answers. Reading it as a contract: at a 5% relative-error target it
+`ana-vec` contributes a strictly better point, and since 2026-11-04 it uses a **two-phase
+estimator** (count the nearest IVF lists exactly, sample only the residual) instead of plain
+sampling. On real SIFT this is the difference between 0.091 mean relative error at 1.20M
+distance evaluations (uniform, S=12k) and **0.015 at 1.68M** — or 0.033 at 1.07M, i.e. *more*
+accurate for *less* work (`experiments/est_study_2026-11-04.md`). The old purely-sampled variant
+is kept on the leaderboard as `ana-vec-sampling`, so the gain is visible as an ablation rather
+than asserted. A certified-list importance-sampling variant was measured and rejected (0.16–0.22:
+the certified set over-covers, so reweighting costs more variance than the exact prefix removes). Reading it as a contract: at a 5% relative-error target it
 is the *only* submission that complies below exhaustive cost (2.7e7 vs 5.0e7), and at a 25%
 target `ivf-plan` is cheaper — so the benchmark exposes a frontier with a real crossover, not
 one winner. The planner is what produces this: uniform sampling cannot answer radii whose
