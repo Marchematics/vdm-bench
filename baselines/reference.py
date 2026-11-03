@@ -124,43 +124,51 @@ def analytics_anavec(data_root, wl, seed=0, dataset="sift", n_probe_lists=32, sa
     # nlist must grow with n, otherwise at 10M each list holds ~39k vectors and probing 32
     # lists exactly costs 1.25M distance computations per query. n//1000 keeps list size near
     # 1000 and the two-phase cost at tens of thousands per query at any scale.
-    nlist = int(min(16384, max(256, n // 1000)))
-    km = faiss.Kmeans(X.shape[1], nlist, niter=10, verbose=False, seed=seed)
-    km.train(np.ascontiguousarray(X[: min(80_000, n)]))
-    C = km.centroids.astype(np.float32)
-    # Assign with faiss, not a numpy pairwise: at 10M x 10,000 centroids the numpy product
-    # is 1.28e13 flops and dominated the whole run (~21 min of pure BLAS).
-    qflat = faiss.IndexFlatL2(X.shape[1])
-    qflat.add(C)
-    assign = np.empty(n, dtype=np.int64)
-    for s0 in range(0, n, 100_000):
-        _, idx = qflat.search(np.ascontiguousarray(X[s0:s0 + 100_000]), 1)
-        assign[s0:s0 + len(idx)] = idx.ravel()
-    members = [np.flatnonzero(assign == c) for c in range(nlist)]
-    dQ = np.sqrt(core.pairwise(Q, C))
-    dQX = np.einsum("ij,ij->i", X, X)
-
+    # ---- plan selection (this is the point of the paper) -------------------
+    # Two-phase wins at small n and LOSES at 10M: measured on SIFT10M the 4,000-sample residual
+    # estimate covers 0.046% of the residual, so matched-cost uniform sampling wins at every
+    # point of the frontier (experiments/range10m_frontier_2026-11-04.md). The planner therefore
+    # picks by scale: two-phase below 2M vectors, budgeted uniform sampling above it.
     est = np.zeros_like(wl["truth"], dtype=np.float64)
     cost = 0.0
-    for i, q in enumerate(Q):
-        if n_probe_lists > 0:
+    if n >= 2_000_000:
+        S = max(10_000, int(0.01 * n))
+        for i, q in enumerate(Q):
+            samp = rng.choice(n, S, replace=False)
+            dd = np.sqrt(np.maximum(float(q @ q) + np.einsum("ij,ij->i", X[samp], X[samp])
+                                    - 2.0 * X[samp] @ q, 0.0))
+            cost += S
+            for j, r in enumerate(radii):
+                est[i, j] = n * float((dd <= r).sum()) / S
+    else:
+        nlist = int(min(16384, max(256, n // 1000)))
+        km = faiss.Kmeans(X.shape[1], nlist, niter=10, verbose=False, seed=seed)
+        km.train(np.ascontiguousarray(X[: min(80_000, n)]))
+        C = km.centroids.astype(np.float32)
+        qflat = faiss.IndexFlatL2(X.shape[1])
+        qflat.add(C)
+        assign = np.empty(n, dtype=np.int64)
+        for s0 in range(0, n, 100_000):
+            _, idx = qflat.search(np.ascontiguousarray(X[s0:s0 + 100_000]), 1)
+            assign[s0:s0 + len(idx)] = idx.ravel()
+        members = [np.flatnonzero(assign == c) for c in range(nlist)]
+        dQ = np.sqrt(core.pairwise(Q, C))
+        dQX = np.einsum("ij,ij->i", X, X)
+        for i, q in enumerate(Q):
             order = np.argsort(dQ[i])[:n_probe_lists]
             pid = np.concatenate([members[c] for c in order])
-        else:
-            pid = np.empty(0, dtype=np.int64)
-        mask = np.ones(n, dtype=bool)
-        if len(pid):
+            mask = np.ones(n, dtype=bool)
             mask[pid] = False
-        rest = np.flatnonzero(mask)
-        samp = rest if len(rest) <= sample_n else rng.choice(rest, sample_n, replace=False)
-        cost += len(pid) + len(samp)
-        dq = float(q @ q)
-        dp = np.sqrt(np.maximum(dq + dQX[pid] - 2.0 * X[pid] @ q, 0.0)) if len(pid) else np.empty(0)
-        ds = np.sqrt(np.maximum(dq + dQX[samp] - 2.0 * X[samp] @ q, 0.0)) if len(samp) else np.empty(0)
-        for j, r in enumerate(radii):
-            exact = int((dp <= r).sum()) if len(dp) else 0
-            hit = int((ds <= r).sum()) if len(ds) else 0
-            est[i, j] = exact + (len(rest) * hit / len(samp) if len(samp) else 0.0)
+            rest = np.flatnonzero(mask)
+            samp = rest if len(rest) <= sample_n else rng.choice(rest, sample_n, replace=False)
+            cost += len(pid) + len(samp)
+            q2 = float(q @ q)
+            dp = np.sqrt(np.maximum(q2 + dQX[pid] - 2.0 * X[pid] @ q, 0.0))
+            ds = np.sqrt(np.maximum(q2 + dQX[samp] - 2.0 * X[samp] @ q, 0.0))
+            for j, r in enumerate(radii):
+                exact = int((dp <= r).sum())
+                hit = int((ds <= r).sum()) if len(ds) else 0
+                est[i, j] = exact + (len(rest) * hit / len(samp) if len(samp) else 0.0)
 
     # coverage candidates
     hnsw = faiss.IndexHNSWFlat(X.shape[1], 32)
