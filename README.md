@@ -103,6 +103,25 @@ At small scale IVF range counts lose accuracy to uniform sampling (SciFact: 0.18
 which is exactly why the benchmark rewards *planner-aware* submissions rather than a single
 plan; the quality/serving tasks remain SIFT collections in v0.2.
 
+**The analytics task is a cost/accuracy frontier, not a single score.** SIFT
+(100k×128, 100 queries × 5 radii spanning 0.5%–50% selectivity):
+
+| submission | range mean rel. err | range p95 | coverage | join recall | cost |
+|---|---|---|---|---|---|
+| `exact-oracle` | 0.000 | 0.000 | 1.00 | 1.000 | 5.0e7 |
+| `uniform-sampling` | 0.270 | 1.000 | 0.70 | 0.000 | 1.0e6 |
+| `ivf-plan` | 0.240 | 0.747 | 0.73 | 0.000 | 6.3e6 |
+| `ana-vec` (planner) | **0.042** | **0.172** | **1.00** | **0.9999** | 2.7e7 |
+
+`ana-vec` contributes a strictly better point: **5.7x lower error than the best estimator
+baseline** (0.042 vs 0.240) while also being the only estimator submission that returns
+usable coverage and join answers. Reading it as a contract: at a 5% relative-error target it
+is the *only* submission that complies below exhaustive cost (2.7e7 vs 5.0e7), and at a 25%
+target `ivf-plan` is cheaper — so the benchmark exposes a frontier with a real crossover, not
+one winner. The planner is what produces this: uniform sampling cannot answer radii whose
+expected hit count is below the CI floor; the submission escalates those cells to an exact
+scan and samples the rest.
+
 ## Reproduce
 
 ```bash

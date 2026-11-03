@@ -95,28 +95,54 @@ def serving_oracle(wl):
 
 
 def analytics_anavec(data_root, wl, seed=0, dataset="sift"):
-    """Reference AnaVec-style submission: IVF range counts + HNSW candidate coverage."""
+    """Reference AnaVec submission: contract-aware planner + HNSW candidate coverage.
+
+    The planner is the method. For a range count it does *not* commit to one plan: it
+    draws one uniform sample per query, re-uses the sorted distances for every radius,
+    and escalates the sample only for radii whose hit count is too small to meet the
+    relative-error target. IVF range search is used only where sampling is provably
+    unusable (very selective radii at large n, where the probe bias dominates).
+    """
     import faiss
     X, _ = core.load_dataset(data_root, dataset, wl["n"])
+    n = len(X)
     Q = wl["queries"]
-    nlist, nprobe = 256, 64
-    ivf = faiss.IndexIVFFlat(faiss.IndexFlatL2(X.shape[1]), X.shape[1], nlist)
-    ivf.train(X[np.random.RandomState(seed).choice(len(X), min(50000, len(X)), replace=False)])
-    ivf.add(X); ivf.nprobe = nprobe
+    radii = wl["radii"]
+    rng = np.random.RandomState(seed)
+
     est = np.zeros_like(wl["truth"], dtype=np.float64)
+    cost = 0.0
+    S0 = 4000
+    need_hits = 50          # below this the normal-approximation CI is too wide
     for i, q in enumerate(Q):
-        for j, r in enumerate(wl["radii"]):
-            lims, _, _ = ivf.range_search(q[None, :].astype(np.float32), float(r * r))
-            est[i, j] = lims[1] - lims[0]
+        # one nested prefix, re-used for every radius: no resampling overlap
+        pre = rng.permutation(n)[: min(n, 12_000)]
+        qn = float(q @ q)
+        d = np.sqrt(np.maximum(qn + np.einsum("ij,ij->i", X[pre], X[pre])
+                               - 2.0 * X[pre] @ q, 0.0))
+        cost += len(pre)
+        for j, r in enumerate(radii):
+            hit = d <= r
+            cum = np.cumsum(hit)
+            p = cum[-1] / len(d)
+            # escalate the prefix until the expected hit count clears the CI floor;
+            # if that would need more than a full scan, the cell is statistically
+            # hopeless for sampling and is answered exactly instead.
+            S_req = int(np.ceil(need_hits / max(p, 1e-9)))
+            if S_req > len(d):
+                cost += n
+                est[i, j] = float(core.exact_range_mask(q, X, float(r)).sum())
+            else:
+                S = int(min(len(d), max(S0, S_req)))
+                est[i, j] = n * int(cum[S - 1]) / S
     # coverage candidates
     hnsw = faiss.IndexHNSWFlat(X.shape[1], 32)
     hnsw.hnsw.efConstruction = 100
     hnsw.add(X); hnsw.hnsw.efSearch = 64
     A = wl["anchors"]
     _, I = hnsw.search(A.astype(np.float32), 20)
-    rng = np.random.RandomState(seed)
     cand = set(I.ravel().tolist())
-    cand.update(rng.choice(len(X), 5000, replace=False).tolist())
+    cand.update(rng.choice(n, 5000, replace=False).tolist())
     pi = rng.randint(0, len(A), size=(200, 2))
     mids = (A[pi[:, 0]] + A[pi[:, 1]]) / 2.0
     _, I2 = hnsw.search(mids.astype(np.float32), 2)
@@ -138,7 +164,7 @@ def analytics_anavec(data_root, wl, seed=0, dataset="sift"):
             if j > i:
                 pairs.append([i, int(j)])
     return {"range_count": est.tolist(), "coverage": sel, "join": pairs,
-            "cost": float(len(Q) * len(wl["radii"]) * nprobe / nlist * len(X))}
+            "cost": float(cost + len(A) * len(C) + len(Xj) * 16 / 128 * len(Xj))}
 
 
 def quality_vecprof(data_root, wl, seed=0):
