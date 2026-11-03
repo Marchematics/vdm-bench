@@ -35,7 +35,7 @@ def main():
     ap.add_argument("--workloads", default="workloads")
     ap.add_argument("--out", default="results")
     ap.add_argument("--full", action="store_true", help="include the optional AnaVec/VecProf reference submissions")
-    ap.add_argument("--dataset", default="sift", choices=["sift", "mnist", "scifact"])
+    ap.add_argument("--dataset", default="sift", choices=["sift", "sift10m", "mnist", "scifact"])
     ap.add_argument("--only", default="all",
                     choices=["all", "analytics", "quality", "serving"])
     a = ap.parse_args()

@@ -35,7 +35,7 @@ def main():
     ap.add_argument("--task", required=True, choices=["analytics", "quality", "serving"])
     ap.add_argument("--data-root", required=True)
     ap.add_argument("--workloads", default="workloads")
-    ap.add_argument("--dataset", default="sift", choices=["sift", "mnist", "scifact"])
+    ap.add_argument("--dataset", default="sift", choices=["sift", "sift10m", "mnist", "scifact"])
     ap.add_argument("--predictions", required=True)
     a = ap.parse_args()
     wdir = os.path.join(a.workloads, a.dataset) if os.path.isdir(os.path.join(a.workloads, a.dataset)) else a.workloads
