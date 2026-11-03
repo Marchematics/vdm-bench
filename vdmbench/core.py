@@ -142,12 +142,18 @@ def build_analytics(root, dataset="sift", n=None, nq=100, seed=0, chunk=200_000)
     # coverage: blocked greedy maximisation (never materialises anchors x N)
     anchors = Q[:min(100, len(Q))].copy()
     k = 30
+    # r_cov = 1.5 x median exact 1-NN distance. This MUST be computed over the whole
+    # collection: sampling the first 5,000 rows gave a 1-NN estimate that grows with n
+    # (at 10M those rows are 0.05% of the data), which inflated r_cov to 566 and made the
+    # coverage task trivially satisfiable by 30 random points (ratio 1.00 for every
+    # submission). Exact 1-NN over 10M costs ~15 s of BLAS.
     d1 = []
     for a in anchors[:50]:
+        a2 = float(a @ a)
         best = np.inf
-        for s0 in range(0, min(5_000, N), 1_000):
-            xc = np.asarray(X[s0:s0 + 1_000], dtype=np.float32)
-            d = np.sqrt(np.maximum((a ** 2).sum() + np.einsum("ij,ij->i", xc, xc) - 2.0 * xc @ a, 0.0))
+        for s0 in range(0, N, chunk):
+            xc = np.asarray(X[s0:s0 + chunk], dtype=np.float32)
+            d = np.sqrt(np.maximum(a2 + np.einsum("ij,ij->i", xc, xc) - 2.0 * xc @ a, 0.0))
             best = min(best, float(d.min()))
         d1.append(best)
     r_cov = float(np.median(d1) * 1.5)
