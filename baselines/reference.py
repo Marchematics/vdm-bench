@@ -121,9 +121,12 @@ def analytics_anavec(data_root, wl, seed=0, dataset="sift", n_probe_lists=32, sa
     radii = wl["radii"]
     rng = np.random.RandomState(seed)
 
-    nlist = min(256, max(8, n // 400))
+    # nlist must grow with n, otherwise at 10M each list holds ~39k vectors and probing 32
+    # lists exactly costs 1.25M distance computations per query. n//1000 keeps list size near
+    # 1000 and the two-phase cost at tens of thousands per query at any scale.
+    nlist = int(min(16384, max(256, n // 1000)))
     km = faiss.Kmeans(X.shape[1], nlist, niter=10, verbose=False, seed=seed)
-    km.train(np.ascontiguousarray(X[: min(40_000, n)]))
+    km.train(np.ascontiguousarray(X[: min(80_000, n)]))
     C = km.centroids.astype(np.float32)
     assign = core.pairwise(X, C).argmin(1)
     members = [np.flatnonzero(assign == c) for c in range(nlist)]

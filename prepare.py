@@ -12,7 +12,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--data-root", required=True)
     ap.add_argument("--out", default="workloads")
-    ap.add_argument("--dataset", default="sift", choices=["sift", "mnist", "scifact"])
+    ap.add_argument("--dataset", default="sift", choices=["sift", "sift10m", "mnist", "scifact"])
     ap.add_argument("--n", type=int, default=None)
     ap.add_argument("--quality-n", type=int, default=50_000)
     ap.add_argument("--only", default="all",

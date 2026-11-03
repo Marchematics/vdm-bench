@@ -23,6 +23,8 @@ def load_dataset(root, name="sift", n=None):
     """Load (X, Q) for a supported dataset: sift | mnist | scifact."""
     if name == "sift":
         return load_sift(root, n)
+    if name == "sift10m":
+        return load_sift10m(root, n)
     if name == "mnist":
         return load_mnist(root, n)
     if name == "scifact":
@@ -30,6 +32,34 @@ def load_dataset(root, name="sift", n=None):
         Q = np.load(os.path.join(root, "scifact", "test.npy")).astype(np.float32)
         return (X[:n] if n else X), Q
     raise ValueError(f"unknown dataset {name}")
+
+
+def load_sift10m(root, n=None):
+    """SIFT10M from ModelScope sift1b shards: 100k x 128 float64, values normalised to 0..1.
+
+    Shards must be rescaled by 255 to match SIFT1M's raw integer scale, otherwise every
+    radius/threshold in a SIFT-calibrated workload is off by that factor.
+    """
+    import glob
+    files = sorted(glob.glob(os.path.join(root, "sift10m", "binary_128d_*.npy")))
+    need = (n or 10_000_000)
+    Xs = []
+    got = 0
+    for f in files:
+        if got >= need:
+            break
+        if os.path.getsize(f) < 102_000_000:
+            continue                      # partially downloaded shard
+        a = np.load(f, mmap_mode="r")
+        if a.shape[1] != 128:
+            continue
+        Xs.append(np.asarray(a, dtype=np.float32) * 255.0)
+        got += len(a)
+    if not Xs:
+        raise FileNotFoundError(f"no sift10m shards under {root}/sift10m")
+    X = np.concatenate(Xs, axis=0)
+    Q = np.load(os.path.join(root, "sift", "test.npy")).astype(np.float32)
+    return X[:need], Q
 
 
 def load_sift(root, n=None):
@@ -73,52 +103,78 @@ def pairwise(Q, X):
 # --------------------------------------------------------------------------- #
 # Analytics workload
 # --------------------------------------------------------------------------- #
-def build_analytics(root, dataset="sift", n=None, nq=100, seed=0):
+def build_analytics(root, dataset="sift", n=None, nq=100, seed=0, chunk=200_000):
+    """Analytics workload. Chunked over the collection so it scales to 10M+ vectors.
+
+    Ground truth is exact; every pass over X is blocked, so memory is O(nq*chunk) rather than
+    O(nq*n) (the naive pairwise version would need 8 GB at 10M x 128 for 100 queries).
+    """
     if n is None:
-        n = {"sift": 100_000, "mnist": 60_000, "scifact": None}[dataset]
+        n = {"sift": 100_000, "sift10m": 10_000_000, "mnist": 60_000, "scifact": None}[dataset]
     X, Q = load_dataset(root, dataset, n)
     Q = Q[:nq]
+    N = len(X)
     rng = np.random.RandomState(seed)
-    # pooled distance quantiles
+    # pooled distance quantiles over a sample of the collection
     probe = Q[:50]
+    samp = np.sort(rng.choice(N, min(200_000, N), replace=False))
+    Xs = np.asarray(X[samp], dtype=np.float32)
+    xs2 = np.einsum("ij,ij->i", Xs, Xs)
     vals = []
-    for i in range(0, len(probe), 10):
-        vals.append(np.sqrt(np.maximum(
-            (probe[i:i + 10] ** 2).sum(1)[:, None]
-            + (X ** 2).sum(1)[None, :]
-            - 2 * probe[i:i + 10] @ X.T, 0)).ravel())
+    for i in range(len(probe)):
+        d2 = np.maximum((probe[i] ** 2).sum() + xs2 - 2.0 * Xs @ probe[i], 0.0)
+        vals.append(np.sqrt(d2))
     pooled = np.concatenate(vals)
     sels = [0.005, 0.02, 0.05, 0.2, 0.5]
     radii = np.array([np.quantile(pooled, s) for s in sels], dtype=np.float32)
+    # exact truth: one blocked pass per query, all radii at once
     truth = np.zeros((len(Q), len(radii)), dtype=np.int64)
     for i, q in enumerate(Q):
-        for j, r in enumerate(radii):
-            truth[i, j] = int(exact_range_mask(q, X, float(r)).sum())
-    # coverage
+        q2 = float(q @ q)
+        cnt = np.zeros(len(radii), dtype=np.int64)
+        for s0 in range(0, N, chunk):
+            xc = np.asarray(X[s0:s0 + chunk], dtype=np.float32)
+            d2 = np.maximum(q2 + np.einsum("ij,ij->i", xc, xc) - 2.0 * xc @ q, 0.0)
+            d = np.sqrt(d2)
+            for j, r in enumerate(radii):
+                cnt[j] += int((d <= r).sum())
+        truth[i] = cnt
+    # coverage: blocked greedy maximisation (never materialises anchors x N)
     anchors = Q[:min(100, len(Q))].copy()
     k = 30
-    # r_cov from 1-NN distances
-    d1 = np.sqrt(pairwise(anchors[:50], X[: min(5000, len(X))]).min(axis=1))
+    d1 = []
+    for a in anchors[:50]:
+        best = np.inf
+        for s0 in range(0, min(5_000, N), 1_000):
+            xc = np.asarray(X[s0:s0 + 1_000], dtype=np.float32)
+            d = np.sqrt(np.maximum((a ** 2).sum() + np.einsum("ij,ij->i", xc, xc) - 2.0 * xc @ a, 0.0))
+            best = min(best, float(d.min()))
+        d1.append(best)
     r_cov = float(np.median(d1) * 1.5)
-    D = np.sqrt(pairwise(anchors, X))
     covered = np.zeros(len(anchors), dtype=bool)
     chosen = []
     for _ in range(k):
-        gain = ((D <= r_cov) & (~covered)[:, None]).sum(axis=0)
+        gain = np.zeros(N, dtype=np.float64)
+        for s0 in range(0, N, chunk):
+            xc = np.asarray(X[s0:s0 + chunk], dtype=np.float32)
+            d = np.sqrt(np.maximum((anchors ** 2).sum(1)[:, None] + np.einsum("ij,ij->i", xc, xc)[None, :]
+                                   - 2.0 * anchors @ xc.T, 0.0))
+            gain[s0:s0 + len(xc)] = ((d <= r_cov) & (~covered)[:, None]).sum(axis=0)
         j = int(gain.argmax())
         chosen.append(j)
-        covered |= D[:, j] <= r_cov
+        dj = np.sqrt(np.maximum((anchors ** 2).sum(1) + float(X[j] @ X[j]) - 2.0 * anchors @ X[j], 0.0))
+        covered |= dj <= r_cov
     exact_covered = int(covered.sum())
-    # join on a 10k slice
-    Xj = X[: min(10_000, len(X) // 5)]
+    # join on a slice
+    Xj = np.asarray(X[: min(10_000, N // 5)], dtype=np.float32)
     p = (5.0 * len(Xj) / 2.0) / (len(Xj) * (len(Xj) - 1) / 2.0)
-    dj = np.sqrt(pairwise(Xj[:100], Xj)).ravel()
-    r_join = float(np.quantile(dj, p))
+    dj0 = np.sqrt(np.maximum((Xj[:100] ** 2).sum(1)[:, None] + (Xj ** 2).sum(1)[None, :]
+                             - 2.0 * Xj[:100] @ Xj.T, 0.0)).ravel()
+    r_join = float(np.quantile(dj0, p))
     pairs = []
     for i in range(len(Xj)):
-        m = sqdist(Xj[i], Xj) <= r_join * r_join
-        js = np.where(m)[0]
-        for j in js:
+        m = np.maximum((Xj[i] ** 2).sum() + (Xj ** 2).sum(1) - 2.0 * Xj @ Xj[i], 0.0) <= r_join * r_join
+        for j in np.where(m)[0]:
             if j > i:
                 pairs.append([i, int(j)])
     pairs = np.asarray(pairs, dtype=np.int64)
@@ -127,7 +183,7 @@ def build_analytics(root, dataset="sift", n=None, nq=100, seed=0):
         "anchors": anchors, "r_cov": r_cov, "k": k, "exact_covered": exact_covered,
         "coverage_chosen": np.asarray(chosen, dtype=np.int64),
         "X_join_n": len(Xj), "r_join": r_join, "join_pairs": pairs,
-        "n": len(X),
+        "n": N,
     }
 
 
