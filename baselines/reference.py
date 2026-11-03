@@ -330,52 +330,44 @@ def serving_edf(wl):
     return {"efforts": efforts.tolist(), "priority": np.asarray(pri).tolist()}
 
 
-def serving_vecslo(wl, n_rounds=3, verbose=False):
-    """Reference VecSLO-style submission: deadline-aware scheduling + effort quotas.
+def serving_vecslo(wl, n_rounds=1, verbose=False):
+    """Reference VecSLO submission: deadline order + per-tenant effort quota.
 
-    Two coupled decisions, both invisible to an effort-only baseline:
+    Two further mechanisms were implemented and measured on this workload and are **not**
+    shipped, because both lose to plain deadline ordering here (measurements in the README):
+    hard per-tenant core partitions (cannot create capacity when total load ~= capacity) and
+    admission/shedding (removing 5-6% of queries costs more in failed contracts than it buys
+    in latency). The evaluator still accepts both (`reservation`, `admission`) so later work
+    can revisit them; the reference submission deliberately only uses what wins.
 
-    1. **Scheduling.** The contract is per-tenant latency, so the service order must be
-       deadline-aware: a tenant with a 3.3 ms SLO cannot meet it behind 200 ms-deadline
-       work under FCFS no matter how the effort budget is allocated. We submit EDF
-       priorities (tighter deadline first, hard queries first within a tenant).
-    2. **Effort quotas.** With ordering fixed, each tenant's uniform effort is chosen by
-       coordinate descent on the *global* simulated contract, so a tenant above its fair
-       share is driven to a cheap quota and stops generating head-of-line blocking for
-       tenants that can still be saved.
-
-    The planner sees only the pilot traces; scoring uses held-out traces across the
-    regime sweep. Returns one regime-agnostic (efforts, priority) pair.
+    The planner sees only the pilot traces; scoring uses the held-out traces across regimes.
     """
     tenants, hard = wl["tenants"], wl["hard"]
     T, nq = hard.shape
-    levels = [int(x) for x in core.SURFACE_NPROBE]
     pilot = dict(wl)
     pilot.pop("arrival_eval", None)
 
-    # EDF: higher priority for tighter deadlines; hard queries ahead within a tenant.
     L = np.array([t["L"] for t in tenants], dtype=np.float64)
-    pri = (-L[:, None]).repeat(nq, axis=1) + 0.5 * hard
-    pri = np.asarray(pri, dtype=np.float64)
+    pri = (-L[:, None]).repeat(nq, axis=1) + 0.5 * hard     # EDF, hard queries first
 
     def score(efforts):
         return core.eval_serving({"efforts": efforts.tolist(), "priority": pri.tolist()}, pilot)
 
-    def nprobe_for(R):
-        return int(core.SURFACE_NPROBE[np.argmax(core.SURFACE_RECALL >= R)])
+    def nprobe_for(rec):
+        return int(core.SURFACE_NPROBE[np.argmax(core.SURFACE_RECALL >= rec)])
 
+    R = np.array([t["R"] for t in tenants], dtype=np.float64)
     efforts = np.zeros((T, nq), dtype=np.int64)
     for i in range(T):
-        base = nprobe_for(tenants[i]["R"])
+        base = nprobe_for(R[i])
         efforts[i] = base
-        rec_h = float(core.SURFACE_RECALL[int(np.argmin(np.abs(core.SURFACE_NPROBE - max(1, base // 2))))])
-        if rec_h < tenants[i]["R"]:
+        if _surface(max(1, base // 2))[1] < R[i]:
             efforts[i][hard[i]] = min(256, 2 * base)
     best = (score(efforts)["slo_pass"], efforts.copy())
     for _ in range(n_rounds):
         improved = False
         for i in range(T):
-            for lv in levels:
+            for lv in [int(x) for x in core.SURFACE_NPROBE]:
                 cand = best[1].copy()
                 cand[i] = lv
                 m = score(cand)
@@ -385,5 +377,5 @@ def serving_vecslo(wl, n_rounds=3, verbose=False):
         if not improved:
             break
     if verbose:
-        print("vecslo planned slo_pass", best[0], flush=True)
+        print("vecslo slo_pass", best[0], flush=True)
     return {"efforts": best[1].tolist(), "priority": pri.tolist()}

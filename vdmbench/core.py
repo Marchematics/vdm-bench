@@ -421,32 +421,98 @@ def build_serving(seed=0, n_tenants=8, n_per_tenant=2000, rhos=(0.70, 1.00, 1.15
                         "p50": SURFACE_P50.tolist()}}
 
 
-def _simulate(arr, service, cores, priority=None):
-    """Non-preemptive multi-core queueing simulation.
+def _simulate_partitioned(arr, service, cores, priority=None, reservation=None):
+    """Per-tenant core allocation + non-preemptive priority within each tenant.
 
-    ``arr`` (T, nq) arrival times in seconds; ``service`` (T, nq) service times in ms;
-    ``priority`` (T, nq) optional, *higher is served first* (e.g. EDF gives higher
-    priority to tighter deadlines). Without ``priority`` this is plain FCFS.
-    Returns per-query latency in ms.
+    Isolation is the default: cores are *partitioned* by the submission's ``reservation``
+    vector (fractions, summing to <= 1). A tenant can therefore not steal another tenant's
+    cores by submitting more work — the only cross-tenant lever is re-allocating cores, which
+    is exactly the decision a multi-tenant vector DB operator actually owns.
+
+    With ``reservation=None`` the partition is equal (``1/T`` per tenant), so a hot tenant is
+    confined to its fair share and will visibly violate its SLO. A submission owns the entire
+    allocation: fractions must sum to 1, leftover integer cores go to the tenants with the
+    largest unmet need, and a tenant allocated zero cores is simply unserved (it fails).
+
+    Returns per-query latency in ms and the integer core allocation actually used.
     """
+    import heapq
+    T, nq = arr.shape
+    if reservation is None:
+        res = np.full(T, 1.0 / T)
+    else:
+        res = np.clip(np.asarray(reservation, dtype=np.float64), 0.0, 1.0).ravel()
+        if res.shape[0] != T:
+            res = np.full(T, 1.0 / T)
+        if res.sum() > 1.0:
+            res = res / res.sum()
+    alloc = np.floor(res * cores).astype(int)
+    left = int(cores - alloc.sum())
+    # unmet need in cores: demand (q/s) x mean service (ms) / 1000
+    span = arr.max(axis=1) - arr.min(axis=1) + 1e-9
+    demand = nq / span
+    need = demand * np.asarray(service).mean(axis=1) / 1000.0
+    while left > 0:
+        deficit = need - alloc
+        i = int(np.argmax(deficit))
+        if deficit[i] <= 0:
+            i = int(np.argmax(demand))
+        alloc[i] += 1
+        left -= 1
+    # NOTE: no "everyone gets at least one core" repair. The submission owns the whole
+    # allocation; a tenant it gives 0 cores to simply cannot be served and will fail its
+    # contract. Repairing that silently would flatten exactly the allocation being tested
+    # (it did: a deliberate 3-core skew collapsed back to 1 core each).
+    pri = None if priority is None else np.asarray(priority, dtype=np.float64)
+    lat = np.full((T, nq), 1e6, dtype=np.float32)   # unserved = 1e6 ms, fails any SLO
+    for i in range(T):
+        if alloc[i] == 0:
+            continue
+        order = list(range(nq))
+        if pri is not None:
+            order.sort(key=lambda j: (-pri[i, j], arr[i, j]))
+        else:
+            order.sort(key=lambda j: arr[i, j])
+        free = [0.0] * int(alloc[i])
+        for j in order:
+            c = int(np.argmin(free))
+            at = float(arr[i, j]) * 1000.0
+            start = at if at > free[c] else free[c]
+            free[c] = start + float(service[i, j])
+            lat[i, j] = free[c] - at
+    return lat, alloc
+
+
+def _simulate(arr, service, cores, priority=None, admit=None):
+    """Non-preemptive multi-core queue, FCFS or priority order, shared core pool.
+
+    ``arr`` (T, nq) arrival seconds; ``service`` (T, nq) ms; ``priority`` (T, nq) higher is
+    served first (omitted = FCFS); ``admit`` (T, nq) bool mask of queries that are served at
+    all — a shed query consumes no capacity (its latency is handled by the caller).
+
+    The shared pool is deliberate: a tenant *can* affect another tenant's latency by
+    submitting work, which is what makes isolation a real problem rather than a partition
+    exercise. Hard partitioning was measured and rejected — with total load near capacity it
+    cannot create capacity (see the benchmark README).
+    """
+    import heapq
     T, nq = arr.shape
     lat = np.zeros((T, nq), dtype=np.float32)
     pri = np.zeros((T, nq), dtype=np.float64) if priority is None else np.asarray(priority, dtype=np.float64)
-    flat = [(float(arr[i, j]), int(i), int(j)) for i in range(T) for j in range(nq)]
+    flat = [(float(arr[i, j]), int(i), int(j)) for i in range(T) for j in range(nq)
+            if admit is None or bool(admit[i][j])]
     flat.sort()
     free = [0.0] * cores
-    import heapq
-    waiting = []          # (-priority, seq, i, j, arrival_ms)
+    waiting = []
     seq = 0
     k = 0
     n = len(flat)
     while k < n or waiting:
         if not waiting:
-            t_next = free[int(np.argmin(free))]
             a_ms = flat[k][0] * 1000.0
-            if a_ms > t_next:
-                free[int(np.argmin(free))] = a_ms
-        # admit every arrival that is already waiting at the earliest free core
+            c = int(np.argmin(free))
+            if a_ms > free[c]:
+                free[c] = a_ms
         t_min = min(free)
         while k < n and flat[k][0] * 1000.0 <= t_min + 1e-9:
             at, i, j = flat[k]
@@ -479,6 +545,11 @@ def eval_serving(pred, wl):
         pri = np.asarray(pri, dtype=np.float64)
         if pri.shape != (nT, nq):
             return {"error": f"priority shape {pri.shape} != {(nT,nq)}"}
+    adm = pred.get("admission")
+    if adm is not None:
+        adm = np.asarray(adm, dtype=bool)
+        if adm.shape != (nT, nq):
+            return {"error": f"admission shape {adm.shape} != {(nT,nq)}"}
 
     def lookup(arr, npb):
         idx = np.argmin(np.abs(SURFACE_NPROBE - npb))
@@ -504,7 +575,9 @@ def eval_serving(pred, wl):
 
     passes, p95s, p99s, recalls, goodputs = [], [], [], [], []
     for arr in arr_all:
-        lat = _simulate(arr, service, wl["cores"], pri)
+        lat = _simulate(arr, service, wl["cores"], pri, adm)
+        if adm is not None:
+            lat = np.where(adm, lat, 1e6)      # shed queries are not served -> they fail
         ok = (lat <= L) & (recall >= R)
         passes.append(float(ok.mean()))
         p95s.append(float(np.percentile(lat, 95)))
@@ -516,4 +589,5 @@ def eval_serving(pred, wl):
             "p95_latency": float(np.mean(p95s)),
             "p99_latency": float(np.mean(p99s)),
             "recall_slo": float(np.mean(recalls)),
-            "goodput_qps": float(np.mean(goodputs))}
+            "goodput_qps": float(np.mean(goodputs)),
+            "served_frac": float(np.mean(adm)) if adm is not None else 1.0}
