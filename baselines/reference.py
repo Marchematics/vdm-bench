@@ -1,4 +1,6 @@
 """Reference submissions for VDM-Bench (define the tasks; not the final word)."""
+import math
+
 import numpy as np
 
 from vdmbench import core
@@ -52,7 +54,7 @@ def quality_exact(wl):
     for g in wl["instances"]:
         out.append({"family": g["family"], "level": g["level"],
                     "dup_rate": g["dup_rate"], "n_outliers": g["n_outliers"],
-                    "drift": g["drift_mmd"]})
+                    "drift": g["drift"]})
     return {"instances": out, "cost": 1e12}
 
 
@@ -167,51 +169,127 @@ def analytics_anavec(data_root, wl, seed=0, dataset="sift"):
             "cost": float(cost + len(A) * len(C) + len(Xj) * 16 / 128 * len(Xj))}
 
 
-def quality_vecprof(data_root, wl, seed=0):
-    """Reference VecProf-style submission: certified epsilon-pairs + neighbourhood outliers."""
+def _rff_features(V, gamma, m=256, seed=0):
+    """Random Fourier features for a Gaussian kernel; returns (n, m) and the op cost."""
+    rng = np.random.RandomState(seed)
+    W = rng.normal(0.0, np.sqrt(2.0 * gamma), (V.shape[1], m)).astype(np.float32)
+    b = rng.uniform(0.0, 2.0 * np.pi, m).astype(np.float32)
+    Z = np.sqrt(2.0 / m) * np.cos(V @ W + b)
+    return Z, float(len(V) * m)
+
+
+def _mmd2_from_features(ZA, ZB):
+    return float(np.sum((ZA.mean(0) - ZB.mean(0)) ** 2))
+
+
+def _certified_dup_rate(X, eps, nlist=256, seed=0, batch=512):
+    """Certified epsilon-graph vertex rate.
+
+    Probes every list c with ||x - c|| <= eps + R_max(c). That predicate is necessary
+    for completeness (if ||x-y|| <= eps and y is in c then ||x-c|| <= eps + R_max(c)),
+    so no epsilon-pair is missed regardless of a probe budget.
+    """
     import faiss
-    n = int(wl["instances"][0]["n"])
-    sets = core.make_quality_sets(data_root, n=n, seed=seed)
+    d = X.shape[1]
+    km = faiss.Kmeans(d, nlist, niter=10, verbose=False, seed=seed)
+    ntr = min(40_000, len(X))
+    km.train(np.ascontiguousarray(X[np.random.RandomState(seed).choice(len(X), ntr, replace=False)]))
+    C = km.centroids.astype(np.float32)
+    D2 = core.pairwise(X, C)
+    assign = D2.argmin(1)
+    r_max = np.zeros(nlist, dtype=np.float32)
+    for c in range(nlist):
+        ids = np.flatnonzero(assign == c)
+        if len(ids):
+            r_max[c] = float(np.sqrt(D2[ids, c].max()))
+    members = [np.flatnonzero(assign == c) for c in range(nlist)]
+    thr2 = (eps + r_max) ** 2
+    verts = np.zeros(len(X), dtype=bool)
+    evals = 0
+    for s in range(0, len(X), batch):
+        B = X[s:s + batch]
+        sel = core.pairwise(B, C) <= thr2[None, :]
+        cols = np.flatnonzero(sel.any(0))
+        for c in cols:
+            qi = np.flatnonzero(sel[:, c])
+            mem = members[c]
+            if not len(mem):
+                continue
+            dd = np.sqrt(np.maximum(
+                (B[qi] ** 2).sum(1)[:, None] + (X[mem] ** 2).sum(1)[None, :]
+                - 2.0 * B[qi] @ X[mem].T, 0.0))
+            evals += dd.size
+            r, cc = np.nonzero(dd <= eps)
+            gq, gc = s + qi[r], mem[cc]
+            keep = gq != gc
+            verts[gq[keep]] = True
+            verts[gc[keep]] = True
+    return float(verts.mean()), float(evals)
+
+
+def quality_vecprof(data_root, wl, seed=0, m=256, n_bias=12):
+    """Reference VecProf submission: certified duplicates + debiased RFF-MMD + sampled kNN.
+
+    All three quantities are the workload's *published* rules; the submission's claim is
+    that they can be computed far below exhaustive cost. The drift estimate is
+    *debiased*: an RFF MMD^2 estimator has a positive O(1/m) bias, so the sketch's own
+    null (clean vs clean at the same sample sizes) is measured and subtracted. Without
+    this the clean null sits above the exact threshold and every clean collection is a
+    false positive.
+    """
+    rules = wl["rules"]
+    eps = float(rules["eps"])
+    k_nn = int(rules["k_nn"])
+    thr = float(rules["outlier_thr"])
+    gamma = float(rules["gamma"])
+    sn = int(rules["sample_n"])
+    rn = int(rules["ref_n"])
+
+    # reproduce the published random split: reference = perm[:ref_n], instances = the rest
+    dn = int(rules["dataset_n"])
+    X_all, _ = core.load_sift(data_root, dn)
+    Xa = np.asarray(X_all)
+    perm = np.random.RandomState(int(rules["split_seed"])).permutation(len(Xa))
+    ref_idx = perm[:rn]          # permutation order: ref[:sample_n] must be a random subset
+    inst_idx = np.sort(perm[rn:])
+    refall = np.ascontiguousarray(Xa[ref_idx])
+    sets = core.quality_sets_from(Xa[inst_idx], seed=seed)
+    Zref, c_ref = _rff_features(refall, gamma, m=m, seed=seed)
+    total_cost = c_ref
+    # sketch null at exactly the sizes the instances use -> the bias to subtract
+    biases = []
+    for t in range(n_bias):
+        p = np.random.RandomState(700 + t).permutation(len(refall))
+        biases.append(_mmd2_from_features(Zref[p[:sn]], Zref[p[sn:2 * sn]]))
+    bias = float(np.mean(biases))
+
     out = []
-    total_cost = 0.0
-    eps = 25.0
     for family, level, X in sets:
-        nlist = 256
-        km = faiss.Kmeans(X.shape[1], nlist, niter=10, verbose=False, seed=seed)
-        km.train(X[np.random.RandomState(seed).choice(len(X), min(10000, len(X)), replace=False)].astype(np.float32))
-        C = km.centroids.astype(np.float32)
-        D = np.sqrt(core.pairwise(X, C))  # n x nlist
-        I = D.argmin(1)
-        lists = {}
-        for i, c in enumerate(I):
-            lists.setdefault(int(c), []).append(i)
-        Rmax = np.zeros(nlist, dtype=np.float32)
-        for c, ids in lists.items():
-            Rmax[c] = np.linalg.norm(X[ids] - C[c], axis=1).max()
-        cand = set()
-        probes = 0
-        for i in range(len(X)):
-            cs = np.where(D[i] <= eps + Rmax)[0]
-            for c in cs:
-                ids = lists.get(int(c), [])
-                probes += len(ids)
-                for j in ids:
-                    if j > i:
-                        cand.add((i, j))
-        cand = np.asarray(list(cand), dtype=np.int64) if cand else np.zeros((0, 2), np.int64)
-        if len(cand):
-            dd = np.linalg.norm(X[cand[:, 0]] - X[cand[:, 1]], axis=1)
-            cand = cand[dd <= eps]
-        verts = set(cand.ravel().tolist()) if len(cand) else set()
-        dcl = D.min(1)
-        thr = np.median(dcl) + 6 * (np.percentile(dcl, 75) - np.percentile(dcl, 25))
-        n_out = int((dcl > thr).sum())
-        mu_shift = X.mean(0) - sets[0][2].mean(0)
-        scale = float(np.sqrt(np.sum(sets[0][2].var(0))))
-        drift = float(np.linalg.norm(mu_shift) / max(scale, 1e-9))
+        dup_rate, dup_cost = _certified_dup_rate(X, eps, seed=seed)
+        total_cost += dup_cost
+        # outliers: k-NN distance for *every* point via the store's IVF index.
+        # Sampling 2k of 42k gave 25 counts of error purely from sampling noise (the true
+        # rate is ~1.1%, so 2k points see ~22 hits); the index makes a full pass affordable
+        # (n * nprobe/nlist * n instead of n * n).
+        import faiss
+        nlist = int(min(256, max(1, len(X) // 64)))
+        quant = faiss.IndexFlatL2(X.shape[1])
+        ivf = faiss.IndexIVFFlat(quant, X.shape[1], nlist)
+        ivf.train(np.ascontiguousarray(X[: min(40_000, len(X))]))
+        ivf.add(np.ascontiguousarray(X))
+        ivf.nprobe = 32   # k-NN recall matters: nprobe=8 under-scans and over-counts outliers
+        Xc = np.ascontiguousarray(X)
+        Dk, _ = ivf.search(Xc, k_nn + 1)
+        dk = np.sqrt(np.maximum(Dk[:, -1], 0.0))
+        total_cost += float(len(X) * (32.0 / nlist) * len(X))
+        n_out = int((dk > thr).sum())
+        # drift: debiased RFF-MMD against the clean reference
+        ss = np.random.RandomState(seed + 1).choice(len(X), sn, replace=False)
+        Zi, c_i = _rff_features(np.ascontiguousarray(X[ss]), gamma, m=m, seed=seed)
+        total_cost += c_i
+        drift = _mmd2_from_features(Zi, Zref[:sn]) - bias
         out.append({"family": family, "level": level,
-                    "dup_rate": len(verts) / len(X), "n_outliers": n_out, "drift": drift})
-        total_cost += probes
+                    "dup_rate": dup_rate, "n_outliers": n_out, "drift": drift})
     return {"instances": out, "cost": float(total_cost)}
 
 

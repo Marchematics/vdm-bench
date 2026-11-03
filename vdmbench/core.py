@@ -180,6 +180,10 @@ def exact_pairs_faiss(X, eps):
 def make_quality_sets(root, n=50_000, seed=0):
     """Deterministic corrupted collections (vectors are regenerated, never committed)."""
     X, _ = load_sift(root, n)
+    return quality_sets_from(X, seed=seed)
+
+
+def quality_sets_from(X, seed=0):
     rng = np.random.RandomState(seed)
     sets = [("clean", "-", X.copy())]
     nd = int(0.05 * len(X))
@@ -198,43 +202,150 @@ def make_quality_sets(root, n=50_000, seed=0):
     return sets
 
 
-def build_quality(root, n=50_000, seed=0):
-    eps = 25.0
+def _pairdist(A, B):
+    return np.maximum((A * A).sum(1)[:, None] + (B * B).sum(1)[None, :] - 2.0 * A @ B.T, 0.0)
+
+
+def _knn_dists(X, k=10, idx=None):
+    """Exact k-th nearest-neighbour distance (excluding self) via faiss."""
+    import faiss
+    index = faiss.IndexFlatL2(X.shape[1])
+    index.add(np.ascontiguousarray(X, dtype=np.float32))
+    Q = np.ascontiguousarray(X if idx is None else X[idx], dtype=np.float32)
+    D, _ = index.search(Q, k + 1)
+    D = np.sqrt(np.maximum(D, 0.0))
+    return D[:, -1] if idx is None else D[:, -1]
+
+
+def _mmd2(A, B, gamma, block=1024):
+    """Unbiased MMD^2 with a Gaussian kernel, chunked."""
+    def ksum(P, Q, same):
+        tot = 0.0
+        for i in range(0, len(P), block):
+            kk = np.exp(-gamma * _pairdist(P[i:i + block], Q))
+            if same:
+                kk[np.arange(len(kk)), np.arange(i, i + len(kk))] = 0.0
+            tot += float(kk.sum())
+        return tot
+    m, n = len(A), len(B)
+    return (ksum(A, A, True) / (m * (m - 1))
+            + ksum(B, B, True) / (n * (n - 1))
+            - 2.0 * ksum(A, B, False) / (m * n))
+
+
+def build_quality(root, n=50_000, seed=0, eps=25.0, k_nn=10, ref_n=8000, sample_n=4000):
+    """Quality workload with *published rules* and exact ground truth.
+
+    Every number a submission reports is defined by a rule shipped with the workload,
+    so the task is "compute these definitions cheaply", not "guess our convention":
+
+    * ``dup_rate``: fraction of points that are the endpoint of some pair at distance
+      <= ``eps`` (exact epsilon-graph vertex rate).
+    * ``n_outliers``: number of points whose exact ``k_nn``-th neighbour distance exceeds
+      ``thr``, where ``thr = median + 6*(p75-p25)`` of the k-NN distances on the *clean
+      reference* set (a fixed, published threshold - not re-derived per instance).
+    * ``drift``: unbiased MMD^2 between the collection sample and the clean reference
+      sample under a Gaussian kernel with bandwidth ``gamma`` (published, from the median
+      pairwise distance of the reference).
+    * ``drift_threshold``: 99th percentile of MMD^2 under the null (clean vs clean split),
+      published so detection is decidable.
+    """
+    # The reference must be *exchangeable* with the profiled rows and disjoint from them.
+    # Taking a contiguous block (rows n..n+ref_n) is not exchangeable on real SIFT, which
+    # makes the clean instance read as drifted; a seeded random split of the same rows is
+    # exchangeable by construction and is published so submissions can reproduce it.
+    X, _ = load_sift(root, n)
+    split_seed = 20260101 + seed
+    rng = np.random.RandomState(split_seed)
+    perm = rng.permutation(len(X))
+    ref_n = int(min(ref_n, max(2, len(X) // 4)))
+    # keep the *permutation order* for the reference: ref[:sample_n] must be a random
+    # subset. Sorting ref_idx made refA the lowest-index rows, and on real SIFT row order
+    # correlates with the data, which made every clean instance read as drifted (48 sigma).
+    ref_idx = perm[:ref_n]
+    inst_idx = np.sort(perm[ref_n:])
+    ref = np.ascontiguousarray(np.asarray(X)[ref_idx])
+    # the null band needs two disjoint halves, so the comparison sample cannot exceed
+    # half the reference set
+    sample_n = int(min(sample_n, ref_n // 2))
+    refA = np.ascontiguousarray(ref[:sample_n])
+    # bandwidth: median pairwise distance among a subsample of the clean reference
+    sub = ref[rng.choice(len(ref), min(800, len(ref)), replace=False)]
+    pd = np.sqrt(_pairdist(sub, sub))
+    sigma = float(np.median(pd[np.triu_indices(len(sub), 1)]))
+    gamma = 1.0 / (2.0 * max(sigma, 1e-9) ** 2)
+    # outlier threshold from the clean reference
+    dk_ref = _knn_dists(ref, k=k_nn)
+    q75, q25 = np.percentile(dk_ref, 75), np.percentile(dk_ref, 25)
+    thr = float(np.median(dk_ref) + 6.0 * (q75 - q25))
+    # null band of MMD^2, computed at the *same* sample sizes the instances use
+    # (4,000 vs 4,000) so the detection threshold is calibrated correctly
+    nulls = []
+    for t in range(20):
+        r2 = np.random.RandomState(1000 + t)
+        perm = r2.permutation(len(ref))
+        nulls.append(_mmd2(ref[perm[:sample_n]], ref[perm[sample_n:2 * sample_n]], gamma))
+    drift_thr = float(np.quantile(nulls, 0.99))
+
     instances = []
-    for family, level, X in make_quality_sets(root, n, seed):
-        pairs = exact_pairs_faiss(X, eps)
-        verts = set(sum(([a, b] for a, b in pairs), [])) if pairs else set()
-        instances.append({"family": family, "level": level, "n": len(X),
-                          "dup_rate": len(verts) / len(X),
-                          "n_outliers": int(0.01 * n) if family == "outlier" else 0,
-                          "drift_mmd": 0.5 if family == "drift" else 0.0,
+    for family, level, Xi in quality_sets_from(np.asarray(X)[inst_idx], seed):
+        pairs = exact_pairs_faiss(Xi, eps)
+        verts = set()
+        for u, v in pairs:
+            verts.add(u); verts.add(v)
+        sidx = np.random.RandomState(seed).choice(len(Xi), min(sample_n, len(Xi)), replace=False)
+        sample = np.ascontiguousarray(Xi[sidx])
+        dk = _knn_dists(Xi, k=k_nn, idx=sidx)
+        instances.append({"family": family, "level": level, "n": int(len(Xi)),
+                          "dup_rate": float(len(verts) / len(Xi)),
+                          "n_outliers": int((dk > thr).sum() * len(Xi) / len(sidx)),
+                          "drift": float(_mmd2(sample, refA, gamma)),
                           "coverage": None})
-    return {"instances": instances, "eps": eps}
+    return {"instances": instances,
+            "rules": {"eps": eps, "k_nn": k_nn, "outlier_thr": thr,
+                      "gamma": gamma, "drift_threshold": drift_thr,
+                      "ref_n": ref_n, "split_seed": split_seed, "sample_n": sample_n,
+                      "ref_order": "permutation",
+                      "dataset_n": int(len(X)), "base_n": int(len(inst_idx)),
+                      "dup_threshold": 0.01, "outlier_rate_threshold": 0.005},
+            "null_mmd2_q99": drift_thr}
 
 
 def eval_quality(pred, wl):
-    out = {}
+    """Score against the published rules; every metric is relative to its ground truth."""
     gt = wl["instances"]
     preds = pred.get("instances", [])
     if len(preds) != len(gt):
-        return {"error": "instances length mismatch"}
+        return {"error": f"instances length mismatch: {len(preds)} vs {len(gt)}"}
+    rules = wl.get("rules", {})
+    drift_thr = float(rules.get("drift_threshold", 0.0))
+    dup_thr = float(rules.get("dup_threshold", 0.01))
+    out_thr = float(rules.get("outlier_rate_threshold", 0.005))
     errs = []
-    for p, g in zip(preds, gt):
+    for pr, g in zip(preds, gt):
+        n = max(1, int(g["n"]))
         e = {}
-        e["dup_abs_err"] = abs(float(p.get("dup_rate", 0)) - g["dup_rate"]) / max(1e-9, g["dup_rate"])
-        e["outlier_abs_err"] = abs(float(p.get("n_outliers", 0)) - g["n_outliers"])
-        e["drift_abs_err"] = abs(float(p.get("drift", 0)) - g["drift_mmd"])
-        # detection: is the instance corrupt?
+        # absolute errors: a clean collection has dup_rate == 0 exactly, so dividing by
+        # the ground truth would make any non-zero estimate catastrophically penalised
+        e["dup_abs_err"] = abs(float(pr.get("dup_rate", 0)) - g["dup_rate"])
+        e["outlier_abs_err"] = abs(float(pr.get("n_outliers", 0)) - g["n_outliers"])
+        # an unbiased MMD^2 estimate can be negative, so relative error is unstable;
+        # report drift error in units of the published detection threshold instead
+        e["drift_err"] = abs(float(pr.get("drift", 0)) - g["drift"]) / max(1e-12, drift_thr)
         truth_flag = g["family"] in ("dup", "outlier", "drift")
-        pred_flag = (p.get("dup_rate", 0) > 0.05) or (p.get("n_outliers", 0) > 0) or (p.get("drift", 0) > 0.1)
+        pred_flag = (float(pr.get("dup_rate", 0)) > dup_thr
+                     or float(pr.get("n_outliers", 0)) / n > out_thr
+                     or float(pr.get("drift", 0)) > drift_thr)
+        # "hole" is a *coverage* defect, decided by the COVERAGE clause rather than by any
+        # of the three scalar rules, so scoring scalar detection on it is off-task
+        e["scored"] = int(g["family"] != "hole")
         e["detect_ok"] = int(pred_flag == truth_flag)
         errs.append(e)
-    out["dup_rel_err_mean"] = float(np.mean([x["dup_abs_err"] for x in errs]))
-    out["outlier_abs_err_mean"] = float(np.mean([x["outlier_abs_err"] for x in errs]))
-    out["drift_abs_err_mean"] = float(np.mean([x["drift_abs_err"] for x in errs]))
-    out["detect_acc"] = float(np.mean([x["detect_ok"] for x in errs]))
-    out["cost"] = float(pred.get("cost", float("nan")))
-    return out
+    return {"dup_abs_err_mean": float(np.mean([x["dup_abs_err"] for x in errs])),
+            "outlier_abs_err_mean": float(np.mean([x["outlier_abs_err"] for x in errs])),
+            "drift_err_thr_units": float(np.mean([x["drift_err"] for x in errs])),
+            "detect_acc": float(np.mean([e["detect_ok"] for e in errs if e["scored"]])),
+            "cost": float(pred.get("cost", float("nan")))}
 
 
 # --------------------------------------------------------------------------- #

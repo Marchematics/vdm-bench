@@ -3,48 +3,63 @@
     {
       "family": "clean",
       "level": "-",
-      "n": 5000,
-      "dup_rate": 0.0024,
+      "n": 42000,
+      "dup_rate": 0.002857142857142857,
       "n_outliers": 0,
-      "drift_mmd": 0.0,
+      "drift": -2.153900975265799e-05,
       "coverage": null
     },
     {
       "family": "dup",
       "level": "5%",
-      "n": 5250,
-      "dup_rate": 0.09752380952380953,
+      "n": 44100,
+      "dup_rate": 0.09773242630385487,
       "n_outliers": 0,
-      "drift_mmd": 0.0,
+      "drift": -7.276701988012668e-05,
       "coverage": null
     },
     {
       "family": "outlier",
       "level": "1%",
-      "n": 5050,
-      "dup_rate": 0.002376237623762376,
-      "n_outliers": 50,
-      "drift_mmd": 0.0,
+      "n": 42420,
+      "dup_rate": 0.002828854314002829,
+      "n_outliers": 466,
+      "drift": 4.945931590771835e-05,
       "coverage": null
     },
     {
       "family": "drift",
       "level": "20%",
-      "n": 5000,
-      "dup_rate": 0.0016,
+      "n": 42000,
+      "dup_rate": 0.0020476190476190477,
       "n_outliers": 0,
-      "drift_mmd": 0.5,
+      "drift": 0.0026595649302951774,
       "coverage": null
     },
     {
       "family": "hole",
       "level": "1%",
-      "n": 4950,
-      "dup_rate": 0.0024242424242424242,
+      "n": 41580,
+      "dup_rate": 0.002886002886002886,
       "n_outliers": 0,
-      "drift_mmd": 0.0,
+      "drift": 7.760498718423214e-05,
       "coverage": null
     }
   ],
-  "eps": 25.0
+  "rules": {
+    "eps": 25.0,
+    "k_nn": 10,
+    "outlier_thr": 639.3380126953125,
+    "gamma": 1.5861709250243338e-06,
+    "drift_threshold": 7.07250225056954e-05,
+    "ref_n": 8000,
+    "split_seed": 20260101,
+    "sample_n": 4000,
+    "ref_order": "permutation",
+    "dataset_n": 50000,
+    "base_n": 42000,
+    "dup_threshold": 0.01,
+    "outlier_rate_threshold": 0.005
+  },
+  "null_mmd2_q99": 7.07250225056954e-05
 }

@@ -122,6 +122,53 @@ one winner. The planner is what produces this: uniform sampling cannot answer ra
 expected hit count is below the CI floor; the submission escalates those cells to an exact
 scan and samples the rest.
 
+## Quality task: published rules, exact ground truth
+
+The quality task used to score against conventions that lived only inside the reference
+implementation (a drift value of literally `0.5` for corrupted collections, an outlier
+threshold re-derived per instance). That is unanswerable, so v0.3 makes every number a
+**published rule** shipped inside the workload (`rules` in `quality.json`):
+
+* `dup_rate` — fraction of points that are an endpoint of some pair at distance `eps`
+  (exact ε-graph vertex rate).
+* `n_outliers` — number of points whose exact `k_nn`-th neighbour distance exceeds
+  `outlier_thr`, where `outlier_thr = median + 6·(p75−p25)` of the k-NN distances on the
+  **clean reference set** (a fixed published threshold, not re-derived per instance).
+* `drift` — unbiased **exact** MMD² between the collection sample and the clean reference
+  under a Gaussian kernel with the published bandwidth `gamma`.
+* `drift_threshold` — 99th percentile of the null band (clean vs clean at the same sample
+  sizes), so detection is decidable rather than a judgement call.
+
+Three design bugs were found and fixed while building this, and they are worth recording
+because each one silently produced a wrong answer:
+
+1. **The reference must be exchangeable and disjoint.** Taking rows `n..n+ref_n` is not
+   exchangeable on real SIFT, and drawing the comparison sample from a *sorted* reference
+   index made it the lowest-index rows — the clean collection read as drifted at 48σ. The
+   reference is now a **seeded random split** (`split_seed`) whose permutation order is
+   preserved and published, so submissions reproduce it exactly.
+2. **An unbiased MMD² estimate can be negative**, so relative error is unstable; drift error
+   is therefore reported in **units of the detection threshold**.
+3. **A clean collection has `dup_rate == 0` exactly**, so dividing by the ground truth
+   punishes any non-zero estimate catastrophically; duplicates and outliers use **absolute**
+   errors (rate / counts). `hole` instances are coverage defects and are excluded from
+   `detect_acc`, which scores only the three scalar rules.
+
+**Measured frontier (SIFT, 42k clean base + 4 corrupted collections):**
+
+| submission | dup err ↓ | outlier err (counts) ↓ | drift err (threshold units) ↓ | detect acc ↑ | cost ↓ |
+|---|---|---|---|---|---|
+| `quality-oracle` | 0 | 0 | 0 | 1.00 | 1.0e12 |
+| `quality-naive` | 0.0217 | 93.2 | 8.15 | 0.25 | 0 |
+| `vecprof-ref` | **4.3e-5** | **9.2** | **0.99** | **1.00** | **3.6e9** |
+
+`vecprof-ref` reaches near-exact duplicates (certified ε-graph), drift within one detection
+threshold, and perfect issue detection at **275× below the exhaustive cost**. The one
+imperfect column is honest: outlier counts come from a full IVF k-NN pass (`nprobe=32`),
+which under-scans slightly and therefore reads +9.2 counts on ~466 true outliers (2%
+relative). Sampling 2,000 of 42,000 points instead gave 25 counts of error — the index pass is
+the structural fix, and the residual is the cost of not being exhaustive.
+
 ## Reproduce
 
 ```bash
