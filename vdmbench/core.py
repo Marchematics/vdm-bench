@@ -173,7 +173,11 @@ def build_analytics(root, dataset="sift", n=None, nq=100, seed=0, chunk=200_000)
     covered = np.zeros(A, dtype=bool)
     chosen = []
     for _ in range(k):
-        gain = rem.sum(axis=0, dtype=np.int64)
+        # gain per COLLECTION POINT (axis=1), not per anchor: the greedy selects points.
+        # Summing axis=0 selected anchors, so the "chosen point" was really anchor index j and
+        # the greedy only ever looked at the first len(anchors) rows of X -- at 10M that reported
+        # exact_covered = 0 for a task that is in fact coverable.
+        gain = rem.sum(axis=1, dtype=np.int64)
         j = int(gain.argmax())
         chosen.append(j)
         cov_j = mask[j].astype(bool)
