@@ -99,7 +99,7 @@ def analytics_anavec(data_root, wl, seed=0):
     import faiss
     X, _ = core.load_sift(data_root, wl["n"])
     Q = wl["queries"]
-    nlist, nprobe = 256, 256
+    nlist, nprobe = 256, 64
     ivf = faiss.IndexIVFFlat(faiss.IndexFlatL2(X.shape[1]), X.shape[1], nlist)
     ivf.train(X[np.random.RandomState(seed).choice(len(X), min(50000, len(X)), replace=False)])
     ivf.add(X); ivf.nprobe = nprobe
@@ -180,7 +180,9 @@ def quality_vecprof(data_root, wl, seed=0):
         dcl = D.min(1)
         thr = np.median(dcl) + 6 * (np.percentile(dcl, 75) - np.percentile(dcl, 25))
         n_out = int((dcl > thr).sum())
-        drift = float(np.linalg.norm(X.mean(0) - sets[0][2].mean(0)))
+        mu_shift = X.mean(0) - sets[0][2].mean(0)
+        scale = float(np.sqrt(np.sum(sets[0][2].var(0))))
+        drift = float(np.linalg.norm(mu_shift) / max(scale, 1e-9))
         out.append({"family": family, "level": level,
                     "dup_rate": len(verts) / len(X), "n_outliers": n_out, "drift": drift})
         total_cost += probes

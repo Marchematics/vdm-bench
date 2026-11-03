@@ -3,8 +3,8 @@
     {
       "family": "clean",
       "level": "-",
-      "n": 20000,
-      "dup_rate": 0.003,
+      "n": 5000,
+      "dup_rate": 0.0024,
       "n_outliers": 0,
       "drift_mmd": 0.0,
       "coverage": null
@@ -12,8 +12,8 @@
     {
       "family": "dup",
       "level": "5%",
-      "n": 21000,
-      "dup_rate": 0.09785714285714285,
+      "n": 5250,
+      "dup_rate": 0.09752380952380953,
       "n_outliers": 0,
       "drift_mmd": 0.0,
       "coverage": null
@@ -21,17 +21,17 @@
     {
       "family": "outlier",
       "level": "1%",
-      "n": 20200,
-      "dup_rate": 0.0029702970297029703,
-      "n_outliers": 200,
+      "n": 5050,
+      "dup_rate": 0.002376237623762376,
+      "n_outliers": 50,
       "drift_mmd": 0.0,
       "coverage": null
     },
     {
       "family": "drift",
       "level": "20%",
-      "n": 20000,
-      "dup_rate": 0.0023,
+      "n": 5000,
+      "dup_rate": 0.0016,
       "n_outliers": 0,
       "drift_mmd": 0.5,
       "coverage": null
@@ -39,8 +39,8 @@
     {
       "family": "hole",
       "level": "1%",
-      "n": 19800,
-      "dup_rate": 0.0030303030303030303,
+      "n": 4950,
+      "dup_rate": 0.0024242424242424242,
       "n_outliers": 0,
       "drift_mmd": 0.0,
       "coverage": null
