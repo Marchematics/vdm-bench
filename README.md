@@ -44,39 +44,70 @@ A submission is a directory with `predictions.json`:
 
 ### Serving: what the task actually asks
 
-The serving workload is a **multi-tenant contract**, not a single arrival trace:
+The serving workload is a **multi-tenant contract under a load sweep**, not a single arrival
+trace:
 
-* **Regime sweep.** Arrival traces are generated at three aggregate utilisation levels
-  (`rhos = 0.70, 1.00, 1.15` of `cores` at base effort) and a submission is scored on all
-  of them. `slo_pass` is the mean; `slo_pass_worst` is the worst regime.
-* **Held-out trace.** Workloads ship a pilot trace (`arrival`, visible to submissions) and
-  an independent held-out trace (`arrival_eval`, used for scoring). A submission must
-  return a *policy*, not a replay.
-* **Skew.** One tenant's arrival rate is `skew[0]=4x`; aggregate load is below capacity but
-  that tenant is far above its fair share. This is the isolation test.
-* **Scheduling is part of the submission.** The contract is per-tenant *latency*, so
-  service order is a first-class decision: `priority[i][j]` (higher = served first;
-  omitted = FCFS). Two submissions with identical efforts can differ by 14x in worst-case
-  compliance purely from ordering.
+* **Regime sweep, including overload.** Arrival traces are generated at seven aggregate
+  utilisation levels (`rhos = 0.70, 1.00, 1.15, 1.60, 2.00, 2.50, 3.00` of `cores` at
+  recall-minimal effort). `slo_pass` is the mean, `slo_pass_worst` the worst regime (3.0x
+  overload) and `slo_pass_overload` the mean over the four overload regimes. Below capacity
+  ordering is nearly free; the overload regimes are where a serving policy is actually tested.
+* **Mixed hard/soft contract set.** Eight published (latency, recall) classes:
+  `hot-loose-cheap (140ms, 0.65)` on the 4x hot tenant, `tight-expensive (6ms, 0.99)`,
+  `tight-high (9ms, 0.95)`, `tight-medium (7ms, 0.85)`, `medium-high (25ms, 0.95)`,
+  `medium-low (30ms, 0.80)`, `loose-expensive (160ms, 0.99)`, `tight-low (5ms, 0.70)`.
+  Within every tenant 30% of queries are *hard*: deadline x0.6 and recall at a probe budget
+  is the recall at half that budget, so they need 2x probes. The `tight-expensive` tenant's
+  hard queries are infeasible at any effort (6.24 ms service against a 3.6 ms deadline); the
+  correct action is to shed them. The per-query contract ships as `deadline` / `recall_req`
+  and the rules are published in `serving_meta.json`.
+* **Held-out trace.** Workloads ship a pilot trace (`arrival`, visible to submissions) and an
+  independent held-out trace (`arrival_eval`, used for scoring). A submission must return a
+  *policy*, not a replay: load-blind `(T, nq)` arrays applied to every regime, or load-indexed
+  `(R, T, nq)` arrays with one policy per regime (the regime is public, the trace realisation
+  is not).
+* **Scheduling and admission are part of the submission.** `priority[i][j]` (higher = served
+  first; omitted = FCFS), `admission[i][j]` (shed queries fail their contract) and
+  `reservation[i]` (opt into per-tenant core partitions) are first-class decisions.
 
-**Measured ablation (SIFT, `workloads/sift`, ρ sweep, skew 4:1).** This is the finding the
-task is built to expose:
+**Measured ablation (SIFT, `workloads/sift`, 7-regime sweep, skew 4:1).** Our re-measurement
+of the shipped reference submissions (`run_reference.py --only serving`); all numbers are
+CPU-only reference runs:
 
-| submission | slo_pass | worst regime | p95 latency (ms) |
-|---|---|---|---|
-| `serving-static` (base effort, FCFS) | 0.308 | 0.054 | 513 |
-| `serving-adaptive` (recall-adaptive, FCFS) | 0.692 | 0.692 | 1.3 |
-| `serving-signal` (effort boost, FCFS) | 0.849 | 0.629 | 25 |
-| `serving-edf` (deadline order, base effort) | **0.978** | **0.935** | 95 |
-| `vecslo-ref` (deadline order + effort quotas) | **0.978** | **0.935** | 95 |
+| submission | slo_pass | slo_pass_worst (3.0x) | slo_pass_overload | p95 ms | p99 ms | goodput qps |
+|---|---|---|---|---|---|---|
+| `serving-static` (2x effort, FCFS) | 0.117 | 0.014 | 0.019 | 2563 | 2662 | 362 |
+| `serving-adaptive` (recall-minimal effort, FCFS) | 0.322 | 0.027 | 0.048 | 678 | 700 | 1181 |
+| `serving-signal` (noisy-signal effort boost, FCFS) | 0.243 | 0.022 | 0.032 | 1286 | 1335 | 806 |
+| `serving-edf` (deadline order + recall-minimal effort) | 0.577 | 0.184 | 0.330 | 2028 | 2159 | 2649 |
+| `serving-vecslo` (deadline order + per-tenant effort/admission quota) | 0.773 | **0.553** | **0.650** | 214 | 317 | 4229 |
+| `serving-oracle` (per-query effort + admission, upper bound) | **0.801** | **0.587** | **0.690** | **20** | **101** | **4404** |
 
-Two things follow, and both are reported rather than hidden. (i) Published SLO work that
-only *tunes effort* while leaving FCFS ordering in place is structurally capped at
-0.849 / 0.629 — ordering lifts worst-case compliance **17x** (0.054 → 0.935). (ii) Once
-ordering is fixed, the per-tenant effort quota adds nothing measurable on this surface.
-`serving-edf` is shipped as a first-class baseline precisely so the second fact stays
-visible. The next revision of the task adds per-tenant core reservations — the mechanism
-that makes effort allocation bite; until then, ordering is the honest winner.
+Three findings, all measured on the same held-out traces:
+
+1. **Effort-only methods cap out.** FCFS with any effort policy collapses once offered load
+   exceeds capacity: at 3.0x overload `serving-static` / `serving-adaptive` / `serving-signal`
+   pass 0.014 / 0.027 / 0.022 of contracts. Ordering is the first lever and lifts the worst
+   regime 13x (0.014 → 0.184 for `serving-edf`).
+2. **Deadline ordering alone is cost-blind, and that is the second cap.** Under overload EDF
+   serves the earliest deadlines — the tight-deadline expensive contracts, including hard
+   queries that cannot make their deadline — and starves the loose-deadline tenants (the hot
+   cheap tenant and the loose expensive one). The per-tenant effort/admission quota rations by
+   *cost* instead: `serving-edf` is **3.0x below** `serving-vecslo` on the worst regime
+   (0.184 vs 0.553), 2.0x on the overload mean (0.330 vs 0.650), 6.8x worse on p99
+   (2159 ms vs 317 ms) and 1.6x lower on goodput. `slo_pass_worst` is the column that
+   discriminates.
+3. **Per-query knowledge closes the remaining gap.** The oracle knows each query's true
+   difficulty, so it can shed a tenant's hard queries without shedding its soft ones; it is
+   above the quota submission on every aggregate column (0.587 vs 0.553 worst regime, 0.690
+   vs 0.650 overload mean, 101 ms vs 317 ms p99).
+
+Honest caveat: at 3.0x overload the *worst-tenant* pass rate is 0 for every policy — EDF
+starves the loose-deadline tenants, while the quota and the oracle concentrate service on the
+cheap contracts (`served_frac` 0.84 / 0.81). The task therefore reports isolation as an open
+axis rather than claiming a fairness win; the discriminating columns are `slo_pass_worst`,
+`slo_pass_overload` and the p99 tail. `experiments/serving_design_2026-11-04.md` records the
+per-regime table, the design and the caveats.
 
 Metrics are computed by `evaluate.py` against the ground truth shipped with each workload;
 higher is better except errors and cost. The leaderboard is regenerated by
@@ -145,7 +176,7 @@ spanning 0.4%-46% selectivity, coverage ground truth 37 of 100 anchor-radius pai
 | `uniform-sampling` (S=10k) | 0.223 | 1.000 | 0.00 | 0.000 | 1.0e6 |
 | `ivf-plan` | 0.386 | 0.806 | 0.00 | 0.000 | 6.3e8 |
 | `ana-vec-sampling` (uniform S=100k, ablation) | 0.0297 | 0.122 | 1.00 | 0.9985 | 2.32e7 |
-| **`ana-vec`** | **0.0162** | **0.0644** | **1.00** | **0.9985** | 2.42e7 |
+| **`ana-vec`** | **0.0165** | **0.0590** | **1.00** | **0.9985** | 2.42e7 |
 
 At 10M the exact-prefix plan of the 100k submission is no longer the right lever: probing *k*
 inverted lists exactly stops paying once a list is a small fraction of the collection, and the
@@ -162,9 +193,9 @@ spherical identity drops -- which is worth 1.09x over the spherical form and lea
 against allocation at the *true* per-cell rates (0.0133). Both the ceiling and the gap are
 measured (`experiments/stratification_10m.md`).
 
-Read against the baselines: **13.8x better range error than `uniform-sampling`**, 23.9x better
+Read against the baselines: **13.5x better range error than `uniform-sampling`**, 23.4x better
 than `ivf-plan` at 26x *less* cost, the only submission with non-zero coverage and join recall,
-and 1.84x better than its own same-family ablation `ana-vec-sampling` at +4.3% cost. The
+and 1.80x better than its own same-family ablation `ana-vec-sampling` at +4.3% cost. The
 ablation is the point: the difference between this row and the ablation is one design decision
 -- *where the samples go* -- not more compute. (Submission rows are single runs; the estimator
 study reports the seed-averaged ratio, 1.81x over 8 independent streams, and the ordering holds

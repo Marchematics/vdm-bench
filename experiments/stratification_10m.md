@@ -136,9 +136,12 @@ Budget sweep (same code, corrected estimator):
   removes the need to look at points.
 * The benchmark-level gain is smaller than the estimator-level gain because in the full analytics
   submission the coverage and join parts dominate the reported cost (2.32e7 -> 2.42e7, +4.3%):
-  range error 0.02970 -> 0.01616, p95 0.1222 -> 0.0644, coverage 1.00 and join recall 0.9985
-  unchanged. That submission row is a single run; the seed-averaged estimator figure above is
-  0.0147, so the shipped row is the conservative one.
+  range error 0.02970 -> 0.01654, p95 0.1222 -> 0.0590, coverage 1.00 and join recall 0.9985
+  unchanged (1.80x better than the uniform-plan ablation at +4.3% cost; 13.5x better than the
+  benchmark's own `uniform-sampling` baseline and 23.4x better than `ivf-plan` at 25.8x lower
+  cost). That submission row is a single run of the reference implementation with the builder's
+  thread count pinned (`VDMBENCH_BUILD_THREADS=8`) so it reproduces exactly; the seed-averaged
+  estimator figure above is 0.0147, so the shipped row is the conservative one.
 
 ## Predictor calibration: where the 1.20x headroom comes from
 

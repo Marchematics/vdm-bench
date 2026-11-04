@@ -67,6 +67,17 @@ reproducible for a fixed `VDMBENCH_BUILD_THREADS`, and the sampling-based rows a
 exactly (fixed seeds, no float reduction over threads). Numbers quoted from different thread
 settings can differ in the third significant figure.
 
+## The 10M rows after the fixes, rebuilt from code
+
+| submission | range err | p95 | coverage | join recall | cost |
+|---|---|---|---|---|---|
+| `ana-vec` | 0.01654 | 0.05898 | 1.000 | 0.9985 | 2.422e7 |
+| `ana-vec-sampling` (ablation) | 0.02970 | 0.12220 | 1.000 | 0.9985 | 2.322e7 |
+
+The method/ablation gap is back (1.80x), which is the evidence the paper's claim rests on. These
+are the values committed in `leaderboard_sift10m.md`; they were produced with
+`VDMBENCH_BUILD_THREADS=8` (the default) and reproduce exactly at that setting.
+
 ## Timing (16 cores, `joysuch`, shared host)
 
 | run | wall clock |
