@@ -236,10 +236,16 @@ over served queries, recall-SLO rate, goodput and served fraction at 4/8/16 core
 regimes, for four fixed plans (five at 8 cores), the reference oracle at 8 cores only, and the
 planner's 10-point `u` grid.
 
-**Not measured — do not infer these from the tables.** (i) *Any contract compliance check.* The
-quality contract's `integrity_recall=1.0` and `drift_tol_thr_units=2.0` are never scored (only
-`outlier_rel_tol` is used, to size the sample); concretely, `vecprof-ref`'s drift error on the hole
-collection is 2.12 threshold units, above the declared 2.0, and nothing in the harness fails it.
+**Not measured — do not infer these from the tables.** (i) *Contract compliance for the planner
+plans.* This is no longer unscored: `core.eval_quality` now enforces the quality contract
+(`core.QUALITY_CONTRACT`: per-instance `contract_met`, aggregate `contract_rate`, and each
+failure's clause + margin — see `experiments/quality_contract_2026-11-05.md`), and the reference
+submissions are measured at `quality-oracle` 1.00 (5/5), `quality-naive` 0.00 (0/5) and
+`vecprof-ref` 1.00 (5/5) after the contract-aware drift estimator
+(`experiments/quality_drift_contract_2026-11-05.md`). The committed
+`experiments/data/planner_e2e_quality.json` predates the enforcement, so it carries no
+`contract_rate` for the planner plans; re-run `scripts/planner_e2e.py --quality-ref` to populate
+it.
 (ii) *Coverage.* The `hole` instance is excluded from `detect_acc` and the workload ships
 `coverage: null` for every instance, so coverage is not evaluated at all here. (iii) *Quality at other
 operating points.* One dataset size (50k), one `eps`, one contract, one split: no 10M/100M quality,

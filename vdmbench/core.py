@@ -273,6 +273,16 @@ QUALITY_CONTRACT = {
     "drift_tol_thr_units": 2.0,
 }
 
+# Measured sampling sd of the *defined-sample* drift ground truth across 20 collection-sample
+# seeds, in units of the published drift threshold (SIFT workload, seed 0).  Published as
+# workload metadata because it is the reason the drift clause is a defined-sample clause: the
+# ground truth is one specific 4,000-point sample statistic whose own noise is this large, so a
+# submission must target the published statistic (reproduce the sample rule) rather than a
+# population functional.  See experiments/quality_drift_contract_2026-11-05.md.
+QUALITY_DRIFT_GT_SD_THR_UNITS = {
+    "clean": 1.071, "dup": 1.808, "outlier": 0.598, "drift": 2.176, "hole": 1.081,
+}
+
 
 def exact_pairs_faiss(X, eps):
     """Exact epsilon-pairs via faiss flat range search (ground truth, no approximation)."""
@@ -419,7 +429,23 @@ def build_quality(root, n=50_000, seed=0, eps=25.0, k_nn=10, ref_n=8000, sample_
                       "ref_n": ref_n, "split_seed": split_seed, "sample_n": sample_n,
                       "ref_order": "permutation",
                       "dataset_n": int(len(X)), "base_n": int(len(inst_idx)),
-                      "dup_threshold": 0.01, "outlier_rate_threshold": 0.005},
+                      "dup_threshold": 0.01, "outlier_rate_threshold": 0.005,
+                      # --- defined-sample drift clause (metadata only) ----------------
+                      # The drift GT is the MMD^2 of one *specific* sample_n-point collection
+                      # sample against the published reference sample.  The sample is drawn by
+                      # this rule; publish it so third-party submissions can reproduce the
+                      # defined statistic.  The clause is a defined-sample clause, not a
+                      # population functional (see QUALITY_DRIFT_GT_SD_THR_UNITS above).
+                      "instance_sample_seed": int(seed),
+                      "instance_sample_rule": "RandomState(instance_sample_seed).choice("
+                                              "len(collection), min(sample_n, len(collection)), "
+                                              "replace=False)",
+                      "drift_clause": "defined-sample",
+                      "drift_clause_note": "MMD^2 of the specific sample_n-point collection "
+                                           "sample (instance_sample_rule) against the published "
+                                           "reference sample; a defined sample statistic, not a "
+                                           "population functional",
+                      "drift_gt_sampling_sd_thr_units": dict(QUALITY_DRIFT_GT_SD_THR_UNITS)},
             "null_mmd2_q99": drift_thr}
 
 

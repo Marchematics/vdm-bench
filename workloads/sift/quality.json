@@ -59,7 +59,18 @@
     "dataset_n": 50000,
     "base_n": 42000,
     "dup_threshold": 0.01,
-    "outlier_rate_threshold": 0.005
+    "outlier_rate_threshold": 0.005,
+    "instance_sample_seed": 0,
+    "instance_sample_rule": "RandomState(instance_sample_seed).choice(len(collection), min(sample_n, len(collection)), replace=False)",
+    "drift_clause": "defined-sample",
+    "drift_clause_note": "MMD^2 of the specific sample_n-point collection sample (instance_sample_rule) against the published reference sample; a defined sample statistic, not a population functional",
+    "drift_gt_sampling_sd_thr_units": {
+      "clean": 1.071,
+      "dup": 1.808,
+      "outlier": 0.598,
+      "drift": 2.176,
+      "hole": 1.081
+    }
   },
   "null_mmd2_q99": 7.07250225056954e-05
 }

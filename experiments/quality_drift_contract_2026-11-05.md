@@ -42,7 +42,8 @@ single noisy sample cannot be certified by estimating a different (population) q
 
 ## 3. The contract-aware estimator
 
-* Target: `MMD²_u(A, refA)` with `A` the defined 4,000-point sample and `refA` the published
+* Target: `MMD²_u(A, refA)` with `A` the defined 4,000-point sample (rule published in
+  `rules.instance_sample_seed` / `rules.instance_sample_rule`) and `refA` the published
   reference sample.
 * Estimate: exact-kernel U-statistic on a subsample `S ⊂ A` (no RFF approximation bias), with a
   finite-population CI `Var ≈ (1/k − 1/n)·(4 Var(h)/k + 4 Var(r)/(k·nB²))` and a 1.5× safety
@@ -84,20 +85,39 @@ i.e. ~50× more on drift) and is **258× below exhaustive**. The fixed-budget ru
 contract; the adaptive one passes all five instances with margins ≤0.0042 threshold units
 (≈480× inside the 2.0 tolerance).
 
-## 5. What is still unenforced / follow-ups
+## 5. Benchmark-design decision (recorded, not open)
 
-1. **Publish the instance-sample seed.** The defined statistic is reproducible only because the
-   generator's sample rule is recoverable from `split_seed`; a third-party submission reading
-   only `quality.json` cannot see it. Recommended: add `instance_sample_seed` (and the draw
-   rule) to `rules`. This does not change any ground-truth number.
-2. **The tolerance is below the ground truth's own sampling noise for the drift family**
-   (sd 2.18 thr vs tol 2.0). Against the defined sample this is fine (the exact statistic is
-   reproducible), but any submission that estimates the *population* MMD² is structurally
-   unable to certify it. Either keep the defined-sample framing and publish the rule, or define
-   the drift ground truth on the full collection / widen the tolerance — that is a benchmark
-   design decision, not an estimator fix.
-3. Set-level `integrity_recall`, duplicate false positives and coverage remain unenforced (see
-   `experiments/quality_contract_2026-11-05.md`).
+**Decision (2026-11-05): keep the defined-sample framing for the drift clause, keep the
+2.0-threshold-unit tolerance, and publish the instance-sample seed so the defined statistic is
+reproducible by anyone.** This is deliberate; it is not an open question and not a defect.
+
+**Rationale.** The drift ground truth is an MMD² of one specific `sample_n`-point collection
+sample (the published rule). That is the only form an AQP-style submission can *certify*: the
+target is a deterministic, reproducible statistic — the sample rule is now published in
+`rules.instance_sample_seed` / `rules.instance_sample_rule` — so a submission can spend budget
+until its own CI is small relative to the tolerance and then stop, which is exactly what the
+reference estimator does. A *population* functional has no reproducible reference in the
+workload, and estimating it cannot certify the clause: the defined-sample statistic's own
+sampling sd is 1.07–2.18 threshold units (published in
+`rules.drift_gt_sampling_sd_thr_units`), which for the drift family is *above* the 2.0
+tolerance. Measured: a population-targeting estimator fixes the hole instance but misses the
+drift instance at 2.50 threshold units.
+
+**Stated plainly:** a submission that estimates the *population* MMD² **cannot meet the 2.0
+tolerance by construction** on this workload — the ground truth's own sampling noise alone
+exceeds the tolerance on the drift family. This is a property of the benchmark, chosen on
+purpose so that the clause is a certifiable, reproducible contract rather than a statistical
+hope.
+
+**Consequence for readers/submissions.** Target the published statistic: reproduce
+`rules.instance_sample_seed` with `rules.instance_sample_rule`, and certify the defined MMD².
+The seed is now in the workload's `rules` (and the GT sampling sd per family is published
+alongside it), so this is reproducible by anyone without reading the generator; the analytics
+and quality ground-truth numbers are unchanged by the metadata addition.
+
+**Still unenforced:** set-level `integrity_recall` (the scalar interface ships a rate, not the
+pair set), duplicate false positives (the contract has no false-positive clause), and coverage
+(`coverage: null` for every instance) — see `experiments/quality_contract_2026-11-05.md`.
 
 ## 6. Reproduce
 
