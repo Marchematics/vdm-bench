@@ -72,14 +72,15 @@ class QualityContract:
     rules (outlier count, drift) to the tolerances the published decision thresholds need.
     """
 
-    integrity_recall: float = 1.0
-    outlier_rel_tol: float = 0.25      # decision threshold is 0.5%: 25% of a 1.1% rate is 12 sigma
+    # defaults come from the single published source of truth in vdmbench.core
+    integrity_recall: float = core.QUALITY_CONTRACT["integrity_recall"]
+    outlier_rel_tol: float = core.QUALITY_CONTRACT["outlier_rel_tol"]  # 25% of a 1.1% rate is 12 sigma
     # Drift is a two-sample statistic: with the published 4,000-vs-4,000 protocol its sampling
     # noise is ~1 threshold unit (the reference submission measures 0.99 on the shipped
     # workload), so no plan -- including the exact one -- can certify 0.5 units.  A 2-unit
     # tolerance is what the protocol can actually certify; the decision rule is still exact
     # because the drift instance's signal is 37x the threshold.
-    drift_tol_thr_units: float = 2.0
+    drift_tol_thr_units: float = core.QUALITY_CONTRACT["drift_tol_thr_units"]
 
     def to_json(self):
         return {"kind": "quality", "integrity_recall": self.integrity_recall,

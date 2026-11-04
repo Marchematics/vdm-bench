@@ -249,6 +249,31 @@ def eval_analytics(pred, wl, root, dataset="sift"):
 # --------------------------------------------------------------------------- #
 # Quality workload
 # --------------------------------------------------------------------------- #
+# The quality task ships a contract per instance. This is the *published* contract
+# (mirrored by ``vdmbench.planner.QualityContract``); ``eval_quality`` enforces it per
+# instance. Because the prediction interface reports one scalar per rule (not the
+# epsilon-pair set), each clause is mapped onto the measurable quantity as documented
+# here, and that mapping is part of the task definition:
+#
+#   integrity_recall    >= 1.0   no epsilon-pair may be missed. The interface reports the
+#                                epsilon-graph *vertex rate*, so the clause is enforced as
+#                                the one-sided rate clause  reported_rate >= true_rate
+#                                (equivalently a measured recall of 1.0). Under-reporting
+#                                is a missed-pair violation; over-reporting is not caught by
+#                                this clause (``detect_acc`` catches it on clean instances).
+#                                Verifying *set* recall needs pair-level output, which the
+#                                interface does not ship (still unenforced).
+#   outlier_rel_tol     <= 0.25  relative error of the outlier count:
+#                                |pred - truth| / max(1, truth).
+#   drift_tol_thr_units <= 2.0   drift error in units of the published detection
+#                                threshold: |pred - truth| / drift_threshold.
+QUALITY_CONTRACT = {
+    "integrity_recall": 1.0,
+    "outlier_rel_tol": 0.25,
+    "drift_tol_thr_units": 2.0,
+}
+
+
 def exact_pairs_faiss(X, eps):
     """Exact epsilon-pairs via faiss flat range search (ground truth, no approximation)."""
     import faiss
@@ -398,13 +423,58 @@ def build_quality(root, n=50_000, seed=0, eps=25.0, k_nn=10, ref_n=8000, sample_
             "null_mmd2_q99": drift_thr}
 
 
+def quality_contract_clauses(pr, g, rules, contract=None):
+    """Check one instance against the published quality contract.
+
+    Returns ``(met, failures)``. Clause mapping (documented in ``QUALITY_CONTRACT``):
+
+      * ``integrity_recall`` (``>=``): the reported epsilon-graph vertex rate must not
+        under-report the exact rate, ``recall = min(1, pred_rate / true_rate)``. The scalar
+        interface cannot distinguish a set that has the right rate but misses pairs; that
+        part needs pair-level output and is still unenforced.
+      * ``outlier_rel_tol`` (``<=``): ``|pred - truth| / max(1, truth)``.
+      * ``drift_tol_thr_units`` (``<=``): ``|pred - truth| / drift_threshold``.
+
+    Each failure records the clause, its operator, the measured value, the limit and the
+    margin by which it was missed (in the clause's own units).
+    """
+    contract = QUALITY_CONTRACT if contract is None else contract
+    drift_thr = float(rules.get("drift_threshold", 0.0))
+    gt_dup = float(g["dup_rate"])
+    pred_dup = float(pr.get("dup_rate", 0.0))
+    integrity = min(1.0, pred_dup / gt_dup) if gt_dup > 0.0 else 1.0
+    outlier_rel = (abs(float(pr.get("n_outliers", 0)) - g["n_outliers"])
+                   / max(1.0, float(g["n_outliers"])))
+    drift_err = abs(float(pr.get("drift", 0.0)) - g["drift"]) / max(1e-12, drift_thr)
+    checks = [
+        ("integrity_recall", ">=", integrity, float(contract["integrity_recall"])),
+        ("outlier_rel_tol", "<=", outlier_rel, float(contract["outlier_rel_tol"])),
+        ("drift_tol_thr_units", "<=", drift_err, float(contract["drift_tol_thr_units"])),
+    ]
+    failures = []
+    for clause, op, value, limit in checks:
+        ok = value >= limit - 1e-12 if op == ">=" else value <= limit + 1e-12
+        if not ok:
+            margin = (limit - value) if op == ">=" else (value - limit)
+            failures.append({"clause": clause, "op": op, "value": float(value),
+                             "limit": float(limit), "margin": float(margin)})
+    return (len(failures) == 0), failures
+
+
 def eval_quality(pred, wl):
-    """Score against the published rules; every metric is relative to its ground truth."""
+    """Score against the published rules; every metric is relative to its ground truth.
+
+    Also enforces the published per-instance *contract* (``QUALITY_CONTRACT``): returns the
+    per-instance ``contract_met`` flags, the aggregate ``contract_rate`` and every failure
+    with its clause and margin. A submission that looks best on a mean error column but
+    violates a clause is reported as failing the contract.
+    """
     gt = wl["instances"]
     preds = pred.get("instances", [])
     if len(preds) != len(gt):
         return {"error": f"instances length mismatch: {len(preds)} vs {len(gt)}"}
     rules = wl.get("rules", {})
+    contract = wl.get("contract", QUALITY_CONTRACT)
     drift_thr = float(rules.get("drift_threshold", 0.0))
     dup_thr = float(rules.get("dup_threshold", 0.01))
     out_thr = float(rules.get("outlier_rate_threshold", 0.005))
@@ -427,12 +497,25 @@ def eval_quality(pred, wl):
         # of the three scalar rules, so scoring scalar detection on it is off-task
         e["scored"] = int(g["family"] != "hole")
         e["detect_ok"] = int(pred_flag == truth_flag)
+        met, failures = quality_contract_clauses(pr, g, rules, contract)
+        e["contract_met"] = bool(met)
+        e["contract_failures"] = failures
         errs.append(e)
+    contract_failures = []
+    for idx, (e, g) in enumerate(zip(errs, gt)):
+        for f in e["contract_failures"]:
+            contract_failures.append({"instance": idx, "family": g["family"],
+                                      "level": g["level"], **f})
     return {"dup_abs_err_mean": float(np.mean([x["dup_abs_err"] for x in errs])),
             "outlier_abs_err_mean": float(np.mean([x["outlier_abs_err"] for x in errs])),
             "drift_err_thr_units": float(np.mean([x["drift_err"] for x in errs])),
             "detect_acc": float(np.mean([e["detect_ok"] for e in errs if e["scored"]])),
-            "cost": float(pred.get("cost", float("nan")))}
+            "contract_rate": float(np.mean([e["contract_met"] for e in errs])),
+            "contract_met_count": int(sum(e["contract_met"] for e in errs)),
+            "cost": float(pred.get("cost", float("nan"))),
+            "_contract": dict(contract),
+            "_contract_met": [e["contract_met"] for e in errs],
+            "_contract_failures": contract_failures}
 
 
 # --------------------------------------------------------------------------- #
