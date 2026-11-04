@@ -1,5 +1,6 @@
 """Reference submissions for VDM-Bench (define the tasks; not the final word)."""
 import math
+import os
 
 import numpy as np
 
@@ -84,6 +85,38 @@ def _cell_hit_prob(dq, r, grid, qs):
     return np.clip(np.where(rad <= 0.0, 0.0, p), 0.0, 1.0)
 
 
+def _cell_hit_prob_angle(dq, r, grid, qs, dim):
+    """Angle-aware per-cell hit probability (the version that ships).
+
+    The spherical identity d(q,x)^2 ~= d_c^2 + t^2 sets cos(theta) = 0 in
+    d(q,x)^2 = d_c^2 + t^2 - 2 d_c t cos(theta).  For isotropic points around a centroid the
+    angle term is not negligible at 128 dimensions -- cos(theta) has sd 1/sqrt(dim) = 0.088 --
+    and dropping it costs real allocation quality.  Integrating t over the cell's own radius
+    quantiles and cos(theta) ~ N(0, 1/dim):
+
+        p_c = E_t[ Phi( (r^2 - d_c^2 - t^2) / (2 d_c t / sqrt(dim)) ) ]
+
+    Measured on SIFT10M against the exact per-cell hit rates: correlation 0.954 vs 0.847 for the
+    spherical form, RMSE 0.046 vs 0.081, model-only count error 31% vs 48%.  Through the
+    estimator at a matched budget of 100k evaluations/query (8 seeds): 0.0147 +- 0.0009 vs
+    0.0160 +- 0.0013 for the spherical form and 0.0266 for uniform sampling, i.e. 1.81x over
+    uniform and within 1.11x of allocating at the true per-cell rates
+    (experiments/stratification_10m.md).
+    """
+    from scipy.special import erf
+    nc = len(dq)
+    qlev = np.linspace(0.05, 0.95, 8)
+    k = np.clip(np.searchsorted(qs, qlev) - 1, 0, len(qs) - 2)
+    frac = (qlev - qs[k]) / np.maximum(qs[k + 1] - qs[k], 1e-9)
+    ts = grid[:, k] * (1.0 - frac)[None, :] + grid[:, k + 1] * frac[None, :]
+    d = dq[:, None]
+    num = r * r - d * d - ts * ts
+    den = np.maximum(2.0 * d * ts / np.sqrt(dim), 1e-6)
+    p = 0.5 * (1.0 + erf((num / den) / np.sqrt(2.0)))
+    p = np.where(d <= 1e-9, (ts <= r).mean(axis=1)[:, None], p)
+    return np.clip(p.mean(axis=1), 0.0, 1.0)
+
+
 def _allocate(w, budget, min_per_cell=1):
     """Integer per-cell sample allocation summing to `budget` (largest remainder)."""
     w = np.asarray(w, dtype=np.float64)
@@ -132,7 +165,12 @@ def range_stratified(X, Q, radii, nlist=None, sample_n=None, seed=0, batch=200_0
     nlist = int(nlist or min(16384, max(256, N // 1000)))
     sample_n = int(sample_n or max(10_000, int(0.01 * N)))
     rng = np.random.RandomState(seed)
-    t0 = 0
+    # Pin the k-means thread count: the reduction order of the parallel distance computation
+    # changes the centroids in the last bits, and that moved the 10M range error between
+    # 0.01616 (32 threads) and 0.01636 (24 threads) across otherwise identical runs. A
+    # benchmark's headline row should not depend on how many cores the reader has.
+    _prev = faiss.omp_get_max_threads()
+    faiss.omp_set_num_threads(int(os.environ.get("VDMBENCH_BUILD_THREADS", "8")))
     km = faiss.Kmeans(X.shape[1], nlist, niter=10, verbose=False, seed=seed)
     km.train(np.ascontiguousarray(X[: min(400_000, N)]))
     C = km.centroids.astype(np.float32)
@@ -166,7 +204,7 @@ def range_stratified(X, Q, radii, nlist=None, sample_n=None, seed=0, batch=200_0
         q2 = float(q @ q)
         Ws = []
         for r in radii:
-            p = _cell_hit_prob(dQ[i], float(r), grid, qs)
+            p = _cell_hit_prob_angle(dQ[i], float(r), grid, qs, X.shape[1])
             pc = np.clip(p, 1e-3, 1 - 1e-3)
             w = sizes * np.sqrt(pc * (1 - pc))
             Ws.append(w / w.sum())
@@ -177,6 +215,7 @@ def range_stratified(X, Q, radii, nlist=None, sample_n=None, seed=0, batch=200_0
         for j, r in enumerate(radii):
             hit = np.bincount(cells, weights=(dd <= r).astype(np.float64), minlength=nlist)
             est[i, j] = float((sizes * hit / np.maximum(alloc, 1)).sum())
+    faiss.omp_set_num_threads(_prev)
     return est, cost
 
 
@@ -216,9 +255,20 @@ def analytics_anavec(data_root, wl, seed=0, dataset="sift", n_probe_lists=32, sa
     # picks by scale: two-phase below 2M vectors, budgeted uniform sampling above it.
     est = np.zeros_like(wl["truth"], dtype=np.float64)
     cost = 0.0
-    plan = range_plan or ("stratified" if n >= 2_000_000 else "two-phase")
+    # Plan selection. `n_probe_lists=0` is the shipped ablation ("the same planner with plain
+    # sampling"), so it must force the uniform plan at every scale -- with the stratified plan
+    # selected by default above 2M it silently reproduced the full method instead, which would
+    # have made the ablation show exactly zero difference.
+    if range_plan is not None:
+        plan = range_plan
+    elif n_probe_lists == 0:
+        plan = "uniform"
+    else:
+        plan = "stratified" if n >= 2_000_000 else "two-phase"
     if plan == "uniform":
-        S = max(10_000, int(0.01 * n)) if n >= 2_000_000 else wl["n"]
+        # above 2M the uniform plan is budgeted like the stratified one (1% of the collection so
+        # the two are cost-comparable); below 2M it is the two-phase plan's residual sample size
+        S = max(10_000, int(0.01 * n)) if n >= 2_000_000 else int(sample_n)
         for i, q in enumerate(Q):
             samp = rng.choice(n, S, replace=False)
             dd = np.sqrt(np.maximum(float(q @ q) + np.einsum("ij,ij->i", X[samp], X[samp])
@@ -584,7 +634,10 @@ def _serving_quota_search(wl, mode="quota", n_rounds=2, warm=None, verbose=False
 
         def score(eff, adm):
             m = core.eval_serving_regime(pilot, eff, pri, adm, r)
-            return (min(m["tenant_pass"]), m["slo_pass"])
+            # aggregate pass first: under overload the system is capacity-bound, so the
+            # decision is *which* contracts to serve, not merely in which order. Worst-tenant
+            # pass is the tie-break (isolation when aggregate is equal).
+            return (m["slo_pass"], min(m["tenant_pass"]))
 
         best_eff, best_adm = build()
         best = score(best_eff, best_adm)
@@ -610,6 +663,29 @@ def _serving_quota_search(wl, mode="quota", n_rounds=2, warm=None, verbose=False
                     fh[:] = fhv
                     mh[:] = 2.0
                     ms[:] = 1.0
+                    eff, adm = build()
+                    obj = score(eff, adm)
+                    if obj > best:
+                        best, best_eff, best_adm = obj, eff, adm
+                        best_params = snapshot()
+        # Subset scan: under overload the right decision is often "serve this tenant fully,
+        # shed that one entirely", which one-tenant-at-a-time coordinate ascent cannot reach
+        # (reducing a starved tenant's admission does not change the objective, so it is
+        # rejected as a tie). Try prefix subsets ordered by cost and by deadline.
+        hf = hard.mean(axis=1)
+        bcost = np.array([core.surface_lookup(int(base[i]))[0] for i in range(T)])
+        bcost2 = np.array([core.surface_lookup(int(min(256, 2 * base[i])))[0] for i in range(T)])
+        mean_cost = (1.0 - hf) * bcost + hf * bcost2
+        mean_deadline = np.asarray(wl["deadline"], dtype=np.float64).mean(axis=1)
+        for key in (mean_cost, mean_deadline, mean_cost * mean_deadline):
+            order = np.argsort(key)
+            for k in range(1, T + 1):
+                fs[:] = 0.0
+                fs[order[:k]] = 1.0
+                fh[:] = fs
+                for mhv in (1.0, 2.0):
+                    ms[:] = 1.0
+                    mh[:] = mhv
                     eff, adm = build()
                     obj = score(eff, adm)
                     if obj > best:
@@ -647,8 +723,8 @@ def _serving_quota_search(wl, mode="quota", n_rounds=2, warm=None, verbose=False
         out_eff[r] = best_eff
         out_adm[r] = best_adm
         if verbose:
-            print(f"  serving[{mode}] rho={rho}: worst_tenant={best[0]:.4f} "
-                  f"pass={best[1]:.4f}", flush=True)
+            print(f"  serving[{mode}] rho={rho}: pass={best[0]:.4f} "
+                  f"worst_tenant={best[1]:.4f}", flush=True)
     return {"efforts": out_eff.tolist(), "priority": pri.tolist(),
             "admission": out_adm.tolist()}
 
