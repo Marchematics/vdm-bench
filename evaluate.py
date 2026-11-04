@@ -13,7 +13,9 @@ def load_wl(task, wl_dir):
         z = np.load(os.path.join(wl_dir, "analytics.npz"))
         return {k: z[k].item() if z[k].shape == () else z[k] for k in z.files}
     if task == "quality":
-        return json.load(open(os.path.join(wl_dir, "quality.json")))
+        wl = json.load(open(os.path.join(wl_dir, "quality.json")))
+        wl["contract"] = core.QUALITY_CONTRACT   # published contract, enforced by eval_quality
+        return wl
     if task == "serving":
         z = np.load(os.path.join(wl_dir, "serving.npz"))
         meta = json.load(open(os.path.join(wl_dir, "serving_meta.json")))
