@@ -18,8 +18,9 @@ def main():
     ap.add_argument("--only", default="all",
                     choices=["all", "analytics", "quality", "serving"],
                     help="regenerate just one task family (others are left untouched)")
-    ap.add_argument("--serving-rhos", default="0.70,1.00,1.15",
-                    help="comma-separated aggregate utilisation levels (1.0 = peak)")
+    ap.add_argument("--serving-rhos", default="0.70,1.00,1.15,1.60,2.00,2.50,3.00",
+                    help="comma-separated aggregate utilisation levels (1.0 = peak; "
+                         "1.6-3.0 are overload)")
     ap.add_argument("--serving-skew", default="4,1,1,1,1,1,1,1",
                     help="comma-separated per-tenant arrival weights (hot tenant first)")
     a = ap.parse_args()
@@ -57,6 +58,7 @@ def main():
         ws = core.build_serving(rhos=rhos, skew=skew, eval_seed=1000 + 7)
         np.savez_compressed(os.path.join(out, "serving.npz"),
                             hard=ws["hard"], score=ws["score"],
+                            deadline=ws["deadline"], recall_req=ws["recall_req"],
                             arrival=ws["arrival"], arrival_eval=ws["arrival_eval"])
         with open(os.path.join(out, "serving_meta.json"), "w") as f:
             json.dump({"tenants": ws["tenants"], "cores": ws["cores"],
@@ -64,6 +66,13 @@ def main():
                        "rates_qps": ws["rates_qps"],
                        "mean_base_service_ms": ws["mean_base_service_ms"],
                        "held_out_trace": True,
+                       "contracts": ws["contracts"],
+                       "hard_frac": ws["hard_frac"],
+                       "hard_deadline_scale": ws["hard_deadline_scale"],
+                       "hard_effort_rule": "recall = min(recall(nprobe), recall(nprobe // 2))",
+                       "overload_rho": ws["overload_rho"],
+                       "policy_format": "efforts/priority/admission may be (T,nq) "
+                                        "load-blind or (R,T,nq) load-indexed",
                        "surface": ws["surface"]}, f, indent=2)
         manifest["serving_tenants"] = len(ws["tenants"])
         manifest["serving_rhos"] = ws["rhos"]

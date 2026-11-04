@@ -64,39 +64,124 @@ def quality_naive(wl):
     return {"instances": out, "cost": 0.0}
 
 
-def _nprobe_for(R):
-    arr = np.array([1, 2, 4, 8, 16, 32, 64, 128, 256])
-    rec = np.array([0.4836, 0.6707, 0.8276, 0.9328, 0.9840, 0.9979, 0.9999, 1.0, 1.0])
-    return int(arr[np.argmax(rec >= R)])
+# --------------------------------------------------------------------------- #
+# Index-stratified range estimation (the plan that wins at 10M)
+# --------------------------------------------------------------------------- #
+def _cell_hit_prob(dq, r, grid, qs):
+    """Predicted fraction of a cell inside the query ball.
+
+    d(q, x)^2 ~= d_c^2 + t^2 for a point x at distance t from its centroid c, so a cell can
+    hold a point within r only if t <= sqrt(r^2 - d_c^2); the cell's within-cell radius
+    quantiles give that probability without touching any of its members.
+    """
+    nc = len(dq)
+    rad = np.sqrt(np.maximum(r * r - dq * dq, 0.0))
+    idx = np.clip((grid <= rad[:, None]).sum(axis=1), 1, len(qs) - 1)
+    ar = np.arange(nc)
+    lo, hi = grid[ar, idx - 1], grid[ar, idx]
+    w = np.where(hi > lo, (rad - lo) / np.maximum(hi - lo, 1e-9), 1.0)
+    p = qs[idx - 1] + np.clip(w, 0.0, 1.0) * (qs[idx] - qs[idx - 1])
+    return np.clip(np.where(rad <= 0.0, 0.0, p), 0.0, 1.0)
 
 
-def serving_static(wl):
-    T = len(wl["tenants"]); nq = wl["hard"].shape[1]
-    eff = np.zeros((T, nq), dtype=np.int64)
-    for i, t in enumerate(wl["tenants"]):
-        eff[i, :] = 2 * _nprobe_for(t["R"])
-    return {"efforts": eff.tolist()}
+def _allocate(w, budget, min_per_cell=1):
+    """Integer per-cell sample allocation summing to `budget` (largest remainder)."""
+    w = np.asarray(w, dtype=np.float64)
+    s = np.zeros_like(w, dtype=np.int64)
+    s[w > 0] = min_per_cell
+    rem = budget - int(s.sum())
+    if rem <= 0:
+        return s
+    ww = w / w.sum()
+    add = np.floor(rem * ww).astype(np.int64)
+    s += add
+    left = budget - int(s.sum())
+    if left > 0:
+        s[np.argsort(-(rem * ww - add))[:left]] += 1
+    return s
 
 
-def serving_adaptive(wl):
-    T = len(wl["tenants"]); nq = wl["hard"].shape[1]
-    eff = np.zeros((T, nq), dtype=np.int64)
-    for i, t in enumerate(wl["tenants"]):
-        eff[i, :] = _nprobe_for(t["R"])
-    return {"efforts": eff.tolist()}
+def _sample_within(alloc, sizes, order, off, rng):
+    """Draw each sample from inside its own cell (with replacement: unbiased, vectorised)."""
+    cells = np.flatnonzero(alloc > 0)
+    if len(cells) == 0:
+        return np.empty(0, dtype=np.int64), np.empty(0, dtype=np.int64)
+    ctx = np.repeat(cells, alloc[cells])
+    starts = np.repeat(off[cells], alloc[cells])
+    lens = np.repeat(sizes[cells], alloc[cells]).astype(np.float64)
+    pos = starts + (rng.random_sample(len(ctx)) * lens).astype(np.int64)
+    np.minimum(pos, np.repeat(off[cells + 1], alloc[cells]) - 1, out=pos)
+    return ctx, order[pos]
 
 
-def serving_oracle(wl):
-    T = len(wl["tenants"]); nq = wl["hard"].shape[1]
-    eff = np.zeros((T, nq), dtype=np.int64)
-    for i, t in enumerate(wl["tenants"]):
-        base = _nprobe_for(t["R"])
-        for j in range(nq):
-            eff[i, j] = 2 * base if wl["hard"][i, j] else base
-    return {"efforts": eff.tolist()}
+def range_stratified(X, Q, radii, nlist=None, sample_n=None, seed=0, batch=200_000):
+    """Stratified range-count estimator: stratify by IVF cell, allocate by Neyman's rule.
+
+    The estimator is ``sum_c size_c * hits_c / s_c`` (plus the exact part when a prefix of
+    cells is scanned), which is unbiased for any positive allocation, so a mispredicted
+    allocation costs variance but never correctness.  Measured on SIFT10M, 100 queries x 5
+    radii at 100k distance evaluations per query: mean relative error 0.0147 against 0.0297
+    for equally-budgeted uniform sampling (2.0x), p95 0.054 vs 0.122 (2.3x), and 4.1x less
+    compute than uniform sampling needs to reach the same accuracy
+    (experiments/stratification_10m.md).  Spending part of the budget on an exact IVF prefix
+    instead *loses* at this scale (0.0173 at 16 lists), which is why the planner switches the
+    lever, not the family, when the list population becomes small relative to the ball.
+    """
+    import faiss
+    N = len(X)
+    nlist = int(nlist or min(16384, max(256, N // 1000)))
+    sample_n = int(sample_n or max(10_000, int(0.01 * N)))
+    rng = np.random.RandomState(seed)
+    t0 = 0
+    km = faiss.Kmeans(X.shape[1], nlist, niter=10, verbose=False, seed=seed)
+    km.train(np.ascontiguousarray(X[: min(400_000, N)]))
+    C = km.centroids.astype(np.float32)
+    qflat = faiss.IndexFlatL2(X.shape[1])
+    qflat.add(C)
+    assign = np.empty(N, dtype=np.int32)
+    for s0 in range(0, N, batch):
+        _, idx = qflat.search(np.ascontiguousarray(X[s0:s0 + batch]), 1)
+        assign[s0:s0 + len(idx)] = idx.ravel()
+    sizes = np.bincount(assign, minlength=nlist).astype(np.int64)
+    order = np.argsort(assign, kind="stable")
+    off = np.zeros(nlist + 1, dtype=np.int64)
+    np.cumsum(sizes, out=off[1:])
+    qs = np.linspace(0.0, 1.0, 33)
+    tvec = np.empty(N, dtype=np.float32)
+    for s0 in range(0, N, batch):
+        xc = np.asarray(X[s0:s0 + batch], dtype=np.float32)
+        dd = xc - C[assign[s0:s0 + len(xc)]]
+        tvec[s0:s0 + len(xc)] = np.sqrt(np.einsum("ij,ij->i", dd, dd))
+    tord = tvec[order]
+    grid = np.zeros((nlist, len(qs)), dtype=np.float32)
+    for c in range(nlist):
+        seg = tord[off[c]:off[c + 1]]
+        grid[c] = np.quantile(seg, qs) if len(seg) > 4 else (seg.mean() if len(seg) else 0.0)
+
+    dQX = np.einsum("ij,ij->i", X, X)
+    dQ = np.sqrt(core.pairwise(Q, C))
+    est = np.zeros((len(Q), len(radii)), dtype=np.float64)
+    cost = 0.0
+    for i, q in enumerate(Q):
+        q2 = float(q @ q)
+        Ws = []
+        for r in radii:
+            p = _cell_hit_prob(dQ[i], float(r), grid, qs)
+            pc = np.clip(p, 1e-3, 1 - 1e-3)
+            w = sizes * np.sqrt(pc * (1 - pc))
+            Ws.append(w / w.sum())
+        alloc = _allocate(np.mean(Ws, axis=0), sample_n)
+        cells, idx = _sample_within(alloc, sizes, order, off, rng)
+        dd = np.sqrt(np.maximum(q2 + dQX[idx] - 2.0 * X[idx] @ q, 0.0))
+        cost += float(len(idx)) + float(nlist)          # samples + query-to-centroid distances
+        for j, r in enumerate(radii):
+            hit = np.bincount(cells, weights=(dd <= r).astype(np.float64), minlength=nlist)
+            est[i, j] = float((sizes * hit / np.maximum(alloc, 1)).sum())
+    return est, cost
 
 
-def analytics_anavec(data_root, wl, seed=0, dataset="sift", n_probe_lists=32, sample_n=4000):
+def analytics_anavec(data_root, wl, seed=0, dataset="sift", n_probe_lists=32, sample_n=4000,
+                     range_plan=None):
     """Reference AnaVec submission: two-phase range counts + HNSW candidate coverage.
 
     The planner's range estimator is *two-phase* rather than plain sampling:
@@ -131,8 +216,9 @@ def analytics_anavec(data_root, wl, seed=0, dataset="sift", n_probe_lists=32, sa
     # picks by scale: two-phase below 2M vectors, budgeted uniform sampling above it.
     est = np.zeros_like(wl["truth"], dtype=np.float64)
     cost = 0.0
-    if n >= 2_000_000:
-        S = max(10_000, int(0.01 * n))
+    plan = range_plan or ("stratified" if n >= 2_000_000 else "two-phase")
+    if plan == "uniform":
+        S = max(10_000, int(0.01 * n)) if n >= 2_000_000 else wl["n"]
         for i, q in enumerate(Q):
             samp = rng.choice(n, S, replace=False)
             dd = np.sqrt(np.maximum(float(q @ q) + np.einsum("ij,ij->i", X[samp], X[samp])
@@ -140,6 +226,8 @@ def analytics_anavec(data_root, wl, seed=0, dataset="sift", n_probe_lists=32, sa
             cost += S
             for j, r in enumerate(radii):
                 est[i, j] = n * float((dd <= r).sum()) / S
+    elif plan == "stratified":
+        est, cost = range_stratified(X, Q, radii, seed=seed)
     else:
         nlist = int(min(16384, max(256, n // 1000)))
         km = faiss.Kmeans(X.shape[1], nlist, niter=10, verbose=False, seed=seed)
@@ -218,38 +306,6 @@ def quality_naive(wl):
     out = [{"family": g["family"], "level": g["level"], "dup_rate": 0.0,
             "n_outliers": 0, "drift": 0.0} for g in wl["instances"]]
     return {"instances": out, "cost": 0.0}
-
-
-def _nprobe_for(R):
-    arr = np.array([1, 2, 4, 8, 16, 32, 64, 128, 256])
-    rec = np.array([0.4836, 0.6707, 0.8276, 0.9328, 0.9840, 0.9979, 0.9999, 1.0, 1.0])
-    return int(arr[np.argmax(rec >= R)])
-
-
-def serving_static(wl):
-    T = len(wl["tenants"]); nq = wl["hard"].shape[1]
-    eff = np.zeros((T, nq), dtype=np.int64)
-    for i, t in enumerate(wl["tenants"]):
-        eff[i, :] = 2 * _nprobe_for(t["R"])
-    return {"efforts": eff.tolist()}
-
-
-def serving_adaptive(wl):
-    T = len(wl["tenants"]); nq = wl["hard"].shape[1]
-    eff = np.zeros((T, nq), dtype=np.int64)
-    for i, t in enumerate(wl["tenants"]):
-        eff[i, :] = _nprobe_for(t["R"])
-    return {"efforts": eff.tolist()}
-
-
-def serving_oracle(wl):
-    T = len(wl["tenants"]); nq = wl["hard"].shape[1]
-    eff = np.zeros((T, nq), dtype=np.int64)
-    for i, t in enumerate(wl["tenants"]):
-        base = _nprobe_for(t["R"])
-        for j in range(nq):
-            eff[i, j] = 2 * base if wl["hard"][i, j] else base
-    return {"efforts": eff.tolist()}
 
 
 def _rff_features(V, gamma, m=256, seed=0):
@@ -376,89 +432,250 @@ def quality_vecprof(data_root, wl, seed=0, m=256, n_bias=12):
     return {"instances": out, "cost": float(total_cost)}
 
 
+# --------------------------------------------------------------------------- #
+# Serving baselines
+# --------------------------------------------------------------------------- #
+SERVING_SIGNAL_THRESHOLD = 0.5
+
+
+def _nprobe_for(R):
+    return int(core.SURFACE_NPROBE[np.argmax(core.SURFACE_RECALL >= R)])
+
+
+def _base_efforts(wl):
+    """Recall-minimal effort for the *soft* contract of every tenant."""
+    T, nq = wl["hard"].shape
+    base = np.array([_nprobe_for(t["R"]) for t in wl["tenants"]], dtype=np.int64)
+    return np.repeat(base[:, None], nq, axis=1)
+
+
+def _minimal_efforts(wl):
+    """Recall-minimal effort per query: base for soft queries, 2x base for hard queries."""
+    eff = _base_efforts(wl).copy()
+    hard = np.asarray(wl["hard"], dtype=bool)
+    eff[hard] = np.minimum(256, 2 * eff[hard])
+    return eff
+
+
+def _edf_priority(wl):
+    """Higher priority = smaller deadline (earliest deadline first)."""
+    return -np.asarray(wl["deadline"], dtype=np.float64)
+
+
+def serving_static(wl):
+    """Fixed over-provisioned effort (2x recall-minimal), FCFS: the effort-only baseline."""
+    return {"efforts": (2 * _base_efforts(wl)).tolist()}
+
+
+def serving_adaptive(wl):
+    """Recall-minimal effort per tenant, FCFS: effort-only without over-provisioning."""
+    return {"efforts": _base_efforts(wl).tolist()}
+
+
 def serving_signal(wl):
-    T = len(wl["tenants"]); nq = wl["hard"].shape[1]
-    eff = np.zeros((T, nq), dtype=np.int64)
-    sc = wl["score"]
-    for i, t in enumerate(wl["tenants"]):
-        base = _nprobe_for(t["R"])
-        for j in range(nq):
-            eff[i, j] = 2 * base if sc[i, j] > 0.55 else base
-    return {"efforts": eff.tolist()}
-
-
-def _surface(npb):
-    idx = int(np.argmin(np.abs(core.SURFACE_NPROBE - npb)))
-    return float(core.SURFACE_P50[idx]), float(core.SURFACE_RECALL[idx])
+    """Effort boost where the *noisy* difficulty signal fires, FCFS."""
+    base = _base_efforts(wl)
+    sc = np.asarray(wl["score"], dtype=np.float64)
+    eff = np.where(sc > SERVING_SIGNAL_THRESHOLD, 2 * base, base)
+    return {"efforts": eff.astype(np.int64).tolist()}
 
 
 def serving_edf(wl):
-    """Ablation: deadline-aware ordering only, per-query minimal effort (no quotas).
+    """Deadline ordering only: EDF priority + recall-minimal effort, no admission.
 
-    Isolates the scheduling lever from the effort-allocation lever. Shipped as a
-    first-class baseline because it is the comparison that matters: published SLO
-    methods tune *effort* and leave service order at FCFS.
+    The ablation that isolates ordering from effort allocation and admission. It is shipped
+    as a first-class baseline because it is the comparison that matters: deadline order fixes
+    latency compliance under load, but it is *not* a multi-tenant SLO policy — it starves
+    tenants with loose deadlines and serves expensive hard queries that cannot make their
+    deadline.
     """
-    tenants, hard = wl["tenants"], wl["hard"]
+    return {"efforts": _minimal_efforts(wl).tolist(),
+            "priority": _edf_priority(wl).tolist()}
+
+
+def _admission_mask(nq, frac_soft, frac_hard, hard_row):
+    """Admit the first round(frac*n) queries of each class.
+
+    The subset is fixed (trace-independent): on the held-out trace the query indices are an
+    exchangeable sample of arrivals, so this is a *policy* ("admit a fraction of each
+    tenant's contract classes"), not a replay of the pilot arrivals.
+    """
+    adm = np.zeros(nq, dtype=bool)
+    soft = np.flatnonzero(~hard_row)
+    hardi = np.flatnonzero(hard_row)
+    ks = int(round(float(frac_soft) * len(soft)))
+    kh = int(round(float(frac_hard) * len(hardi)))
+    if ks > 0:
+        adm[soft[:ks]] = True
+    if kh > 0:
+        adm[hardi[:kh]] = True
+    return adm
+
+
+def _serving_quota_search(wl, mode="quota", n_rounds=2, warm=None, verbose=False):
+    """Coordinate ascent over per-tenant effort quotas and admission quotas.
+
+    ``mode="quota"`` (the reference VecSLO-style policy): per tenant, one effort multiplier
+    for its hard contract class and one admission fraction. Deadline order + per-tenant
+    effort quota; the quota is the only cross-query lever.
+
+    ``mode="oracle"`` (upper bound): per tenant, a soft and a hard effort multiplier and a
+    soft and a hard admission fraction, so the oracle can shed the hard class of a tenant
+    without shedding its soft class. This space contains the quota space, so the oracle
+    cannot score below it.
+
+    Tuning uses the *pilot* trace only (``wl`` without ``arrival_eval``). The objective is
+    lexicographic: maximise the worst tenant's pass rate first, then the aggregate pass rate.
+    Returns load-indexed (R, T, nq) effort and admission arrays plus the (shared) EDF priority.
+    """
+    hard = np.asarray(wl["hard"], dtype=bool)
     T, nq = hard.shape
-    L = np.array([t["L"] for t in tenants], dtype=np.float64)
-    pri = (-L[:, None]).repeat(nq, axis=1) + 0.5 * hard
-    efforts = np.zeros((T, nq), dtype=np.int64)
-    for i in range(T):
-        base = _nprobe_for(tenants[i]["R"])
-        efforts[i] = base
-        rec_h = _surface(max(1, base // 2))[1]
-        if rec_h < tenants[i]["R"]:
-            efforts[i][hard[i]] = min(256, 2 * base)
-    return {"efforts": efforts.tolist(), "priority": np.asarray(pri).tolist()}
+    rhos = [float(x) for x in wl.get("rhos", [1.0])]
+    nR = len(rhos)
+    pilot = {k: v for k, v in wl.items() if k != "arrival_eval"}
+    pri = _edf_priority(wl)
+    base = np.array([_nprobe_for(t["R"]) for t in wl["tenants"]], dtype=np.int64)
+    f_grid = np.round(np.arange(0.0, 1.0001, 0.1), 2)
+    s_grid = np.round(np.arange(0.1, 1.0001, 0.1), 2)
+    out_eff = np.zeros((nR, T, nq), dtype=np.int64)
+    out_adm = np.ones((nR, T, nq), dtype=bool)
+
+    warm_eff = None if warm is None else np.asarray(warm["efforts"], dtype=np.int64)
+    warm_adm = None if warm is None else np.asarray(warm["admission"], dtype=bool)
+
+    for r in range(nR):
+        rho = rhos[r]
+        # Analytic fair-share start: at recall-minimal effort the offered load is exactly
+        # rho x capacity, so admitting a fraction ~0.95/rho of every tenant puts the admitted
+        # load at 0.95 of capacity -- a stable operating point for EDF. Without this start the
+        # coordinate ascent gets stuck reducing one tenant at a time while the rest stay
+        # overloaded (measured: worst-tenant 0.005 instead of 0.30 at rho=3).
+        f0 = min(1.0, 0.95 / rho)
+        ms = np.ones(T)
+        mh = np.full(T, 2.0)
+        fs = np.full(T, f0)
+        fh = np.ones(T)
+        if warm_eff is not None and warm_eff.ndim == 3:
+            for i in range(T):
+                hrow = hard[i]
+                srow = ~hrow
+                if srow.any():
+                    ms[i] = max(1, int(round(float(warm_eff[r, i, srow].mean()) / base[i])))
+                    fs[i] = float(warm_adm[r, i, srow].mean())
+                if hrow.any():
+                    mh[i] = max(1, int(round(float(warm_eff[r, i, hrow].mean()) / base[i])))
+                    fh[i] = float(warm_adm[r, i, hrow].mean())
+
+        def build():
+            eff = np.empty((T, nq), dtype=np.int64)
+            adm = np.empty((T, nq), dtype=bool)
+            for i in range(T):
+                soft_eff = np.minimum(256, int(base[i] * int(ms[i])))
+                hard_eff = np.minimum(256, int(base[i] * int(mh[i])))
+                eff[i] = np.where(hard[i], hard_eff, soft_eff)
+                if mode == "quota":
+                    adm[i] = _admission_mask(nq, fs[i], fs[i], hard[i])
+                else:
+                    adm[i] = _admission_mask(nq, fs[i], fh[i], hard[i])
+            return eff, adm
+
+        def snapshot():
+            return (ms.copy(), mh.copy(), fs.copy(), fh.copy())
+
+        def score(eff, adm):
+            m = core.eval_serving_regime(pilot, eff, pri, adm, r)
+            return (min(m["tenant_pass"]), m["slo_pass"])
+
+        best_eff, best_adm = build()
+        best = score(best_eff, best_adm)
+        best_params = snapshot()
+        # Global scan over a uniform admission scale: escapes the coordinate-ascent local
+        # optimum where every tenant stays admitted and the system stays overloaded.
+        if mode == "quota":
+            for fv in np.round(np.arange(0.1, 1.0001, 0.05), 2):
+                for mhv in (1.0, 2.0):
+                    fs[:] = fv
+                    fh[:] = fv
+                    mh[:] = mhv
+                    ms[:] = 1.0
+                    eff, adm = build()
+                    obj = score(eff, adm)
+                    if obj > best:
+                        best, best_eff, best_adm = obj, eff, adm
+                        best_params = snapshot()
+        else:
+            for fsv in np.round(np.arange(0.1, 1.0001, 0.1), 2):
+                for fhv in (0.0, 0.5, 1.0):
+                    fs[:] = fsv
+                    fh[:] = fhv
+                    mh[:] = 2.0
+                    ms[:] = 1.0
+                    eff, adm = build()
+                    obj = score(eff, adm)
+                    if obj > best:
+                        best, best_eff, best_adm = obj, eff, adm
+                        best_params = snapshot()
+        ms, mh, fs, fh = [a.copy() for a in best_params]
+        if mode == "quota":
+            grids = [("mh", [1, 2]), ("fs", s_grid)]     # fs is the uniform per-tenant quota
+        else:
+            grids = [("ms", [1, 2]), ("mh", [1, 2]), ("fs", s_grid), ("fh", f_grid)]
+        for _ in range(n_rounds):
+            improved = False
+            for i in range(T):
+                for name, grid in grids:
+                    cur = {"ms": ms, "mh": mh, "fs": fs, "fh": fh}[name]
+                    old = cur[i]
+                    for v in grid:
+                        if v == old:
+                            continue
+                        cur[i] = v
+                        if mode == "quota" and name == "fs":
+                            fh[i] = v
+                        eff, adm = build()
+                        obj = score(eff, adm)
+                        if obj > best:
+                            best, best_eff, best_adm = obj, eff, adm
+                            best_params = snapshot()
+                            improved = True
+                        else:
+                            cur[i] = old
+                            if mode == "quota" and name == "fs":
+                                fh[i] = old
+            if not improved:
+                break
+        out_eff[r] = best_eff
+        out_adm[r] = best_adm
+        if verbose:
+            print(f"  serving[{mode}] rho={rho}: worst_tenant={best[0]:.4f} "
+                  f"pass={best[1]:.4f}", flush=True)
+    return {"efforts": out_eff.tolist(), "priority": pri.tolist(),
+            "admission": out_adm.tolist()}
 
 
-def serving_vecslo(wl, n_rounds=1, verbose=False):
+def serving_vecslo(wl, n_rounds=2, verbose=False):
     """Reference VecSLO submission: deadline order + per-tenant effort quota.
 
-    Two further mechanisms were implemented and measured on this workload and are **not**
-    shipped, because both lose to plain deadline ordering here (measurements in the README):
-    hard per-tenant core partitions (cannot create capacity when total load ~= capacity) and
-    admission/shedding (removing 5-6% of queries costs more in failed contracts than it buys
-    in latency). The evaluator still accepts both (`reservation`, `admission`) so later work
-    can revisit them; the reference submission deliberately only uses what wins.
-
-    The planner sees only the pilot traces; scoring uses the held-out traces across regimes.
+    Per load regime it chooses, for every tenant, the effort multiplier of its hard contract
+    class and an admission fraction (the quota). Both are tuned on the pilot trace only;
+    scoring uses the held-out traces across regimes.
     """
-    tenants, hard = wl["tenants"], wl["hard"]
-    T, nq = hard.shape
-    pilot = dict(wl)
-    pilot.pop("arrival_eval", None)
+    return _serving_quota_search(wl, mode="quota", n_rounds=n_rounds, verbose=verbose)
 
-    L = np.array([t["L"] for t in tenants], dtype=np.float64)
-    pri = (-L[:, None]).repeat(nq, axis=1) + 0.5 * hard     # EDF, hard queries first
 
-    def score(efforts):
-        return core.eval_serving({"efforts": efforts.tolist(), "priority": pri.tolist()}, pilot)
+def serving_oracle(wl, warm=None, n_rounds=2, verbose=False):
+    """Full-information oracle: deadline order + per-query effort and admission.
 
-    def nprobe_for(rec):
-        return int(core.SURFACE_NPROBE[np.argmax(core.SURFACE_RECALL >= rec)])
+    The oracle knows each query's true difficulty (the published ``hard`` flag), so it can
+    set the soft and hard effort independently and shed the hard class of a tenant without
+    shedding its soft class. That space contains the per-tenant quota space, so the oracle
+    is an upper bound on it. Tuned on the pilot trace only.
 
-    R = np.array([t["R"] for t in tenants], dtype=np.float64)
-    efforts = np.zeros((T, nq), dtype=np.int64)
-    for i in range(T):
-        base = nprobe_for(R[i])
-        efforts[i] = base
-        if _surface(max(1, base // 2))[1] < R[i]:
-            efforts[i][hard[i]] = min(256, 2 * base)
-    best = (score(efforts)["slo_pass"], efforts.copy())
-    for _ in range(n_rounds):
-        improved = False
-        for i in range(T):
-            for lv in [int(x) for x in core.SURFACE_NPROBE]:
-                cand = best[1].copy()
-                cand[i] = lv
-                m = score(cand)
-                if m["slo_pass"] > best[0] + 1e-6:
-                    best = (m["slo_pass"], cand)
-                    improved = True
-        if not improved:
-            break
-    if verbose:
-        print("vecslo slo_pass", best[0], flush=True)
-    return {"efforts": best[1].tolist(), "priority": pri.tolist()}
+    ``warm`` (optional) is the VecSLO prediction; it initialises the search so the oracle is
+    guaranteed not to fall below the quota submission. Without it the oracle computes its
+    own quota warm start.
+    """
+    if warm is None:
+        warm = _serving_quota_search(wl, mode="quota", n_rounds=1)
+    return _serving_quota_search(wl, mode="oracle", n_rounds=n_rounds, warm=warm,
+                                 verbose=verbose)

@@ -442,31 +442,93 @@ SURFACE_NPROBE = np.array([1, 2, 4, 8, 16, 32, 64, 128, 256])
 SURFACE_RECALL = np.array([0.4836, 0.6707, 0.8276, 0.9328, 0.9840, 0.9979, 0.9999, 1.0000, 1.0000])
 SURFACE_P50 = np.array([0.220, 0.397, 0.549, 0.959, 2.048, 3.323, 6.240, 16.887, 47.259])
 
+# nearest published probe budget for any integer nprobe (submissions may ask for any value)
+_NP_NEAREST = np.array([int(np.argmin(np.abs(SURFACE_NPROBE - v))) for v in range(257)],
+                       dtype=np.int64)
 
-def build_serving(seed=0, n_tenants=8, n_per_tenant=2000, rhos=(0.70, 1.00, 1.15),
-                  cores=8, skew=None, eval_seed=None):
-    """Multi-tenant serving workload under a joint latency+recall contract.
+# Published contract set: a *mixed* hard/soft set, not one uniform contract. Every tenant
+# draws one (latency deadline L in ms, recall target R) class. Within every tenant 30% of
+# the queries are "hard": their deadline is 0.6x and their recall at a given probe budget is
+# the recall at half that budget, so they need 2x the probes for the same recall. Both rules
+# are published in serving_meta.json and the resulting per-query contract is shipped with the
+# workload (``deadline``, ``recall_req``), so a submission can reproduce it exactly.
+#
+# The set is deliberately heterogeneous: one hot tenant is cheap and tolerant of queueing;
+# two tenants have tight deadlines and expensive (high-recall) probes, and the hard queries of
+# "tight-expensive" are *infeasible* (6.24 ms of service against a 3.6 ms deadline) -- the
+# correct action for those is to shed them, not to serve them. Two tenants have loose
+# deadlines (they are the ones a pure deadline order starves under overload).
+SERVING_CONTRACTS = [
+    ("hot-loose-cheap",  140.0, 0.65),   # hot tenant: cheap probes, tolerant of queueing
+    ("tight-expensive",    6.0, 0.99),   # tight deadline + expensive probes; hard queries infeasible
+    ("tight-high",         9.0, 0.95),
+    ("tight-medium",       7.0, 0.85),
+    ("medium-high",       25.0, 0.95),
+    ("medium-low",        30.0, 0.80),
+    ("loose-expensive",  160.0, 0.99),   # loose deadline + expensive probes: EDF starves it
+    ("tight-low",          5.0, 0.70),
+]
+SERVING_HARD_FRAC = 0.30
+SERVING_HARD_DEADLINE_SCALE = 0.6
+SERVING_SIGNAL_NOISE = 0.6
+SERVING_OVERLOAD_RHO = 1.60
+SERVING_DEFAULT_RHOS = (0.70, 1.00, 1.15, 1.60, 2.00, 2.50, 3.00)
 
-    Offered load is defined *relative to capacity*: ``rho`` is the aggregate utilisation
-    of ``cores`` cores at the per-tenant base effort. ``skew`` re-weights the per-tenant
-    arrival rates (a hot tenant); with ``skew=None`` load is uniform. The interesting
-    regime for an SLO contract is aggregate ``rho < 1`` *with* skew: nothing is globally
-    overloaded, but one tenant's demand exceeds its fair share and, without isolation,
-    starves the others.
 
-    A submission returns a single per-query *policy*; it is scored across every load
-    regime in ``rhos`` (mean and worst-case ``slo_pass``). Two independent arrival
-    traces are emitted per regime: ``arrival`` (pilot, visible to submissions) and
-    ``arrival_eval`` (held-out realisation used for scoring). A submission must therefore
-    return a policy that generalises, not a replay of one trace.
+def surface_idx(nprobe):
+    """Index of the nearest published probe budget for an arbitrary integer nprobe."""
+    a = np.asarray(nprobe, dtype=np.int64)
+    return _NP_NEAREST[np.clip(a, 0, 256)]
+
+
+def surface_lookup(nprobe):
+    """(p50 service ms, recall) at the nearest published probe budget."""
+    idx = int(_NP_NEAREST[int(np.clip(nprobe, 0, 256))])
+    return float(SURFACE_P50[idx]), float(SURFACE_RECALL[idx])
+
+
+def build_serving(seed=0, n_tenants=8, n_per_tenant=2000, rhos=SERVING_DEFAULT_RHOS,
+                  cores=8, skew=None, eval_seed=None, hard_frac=SERVING_HARD_FRAC,
+                  contracts=None):
+    """Multi-tenant serving workload under a *mixed* set of joint latency+recall contracts.
+
+    Offered load is defined relative to capacity: ``rho`` is the aggregate utilisation of
+    ``cores`` cores at the per-tenant recall-minimal effort. ``skew`` re-weights the
+    per-tenant arrival rates (a hot tenant). The sweep covers sub-capacity (0.70, 1.00, 1.15)
+    and *overload* (1.60, 2.00, 2.50, 3.00) regimes: the interesting regime for a
+    multi-tenant SLO contract is where demand exceeds capacity, because that is where
+    ordering, effort allocation and admission stop being interchangeable.
+
+    Each tenant gets one published (L, R) contract class (``SERVING_CONTRACTS``); 30% of
+    its queries are hard (0.6x deadline, recall at half the probe budget). The per-query
+    contract is shipped as ``deadline`` and ``recall_req`` so a submission sees exactly
+    what it is being scored against. ``score`` is a *noisy* per-query difficulty signal
+    (truth + Gaussian noise), not a perfect detector of ``hard``.
+
+    Two independent arrival traces are emitted per regime: ``arrival`` (pilot, visible to
+    submissions) and ``arrival_eval`` (held-out realisation used for scoring). A submission
+    therefore returns a *policy*, not a replay. A policy may be load-blind (arrays shaped
+    (T, nq), applied to every regime) or load-indexed (arrays shaped (R, T, nq), one policy
+    per regime); both are policies over the held-out trace.
     """
     rng = np.random.RandomState(seed)
-    classes = [(3.3, 0.60), (6.5, 0.70), (10.9, 0.80), (21.8, 0.85),
-               (43.7, 0.90), (87.4, 0.90), (218.0, 0.80), (218.0, 0.90)]
-    tenants = [{"id": i, "L": classes[i % len(classes)][0], "R": classes[i % len(classes)][1]}
-               for i in range(n_tenants)]
-    hard = rng.rand(n_tenants, n_per_tenant) < 0.3
-    score = 0.6 * hard.astype(np.float32) + 0.4 * rng.rand(n_tenants, n_per_tenant).astype(np.float32)
+    pool = list(SERVING_CONTRACTS if contracts is None else contracts)
+    tenants = []
+    for i in range(n_tenants):
+        name, L, R = pool[i % len(pool)]
+        tenants.append({"id": i, "L": float(L), "R": float(R), "contract": str(name)})
+
+    hard = rng.rand(n_tenants, n_per_tenant) < hard_frac
+    # noisy per-query difficulty signal: overlaps the truth, so a signal-driven method is
+    # a real (imperfect) baseline rather than a perfect detector of the hard flag
+    score = hard.astype(np.float32) + SERVING_SIGNAL_NOISE * rng.randn(
+        n_tenants, n_per_tenant).astype(np.float32)
+    deadline = np.empty((n_tenants, n_per_tenant), dtype=np.float32)
+    recall_req = np.empty_like(deadline)
+    for i, t in enumerate(tenants):
+        deadline[i] = t["L"]
+        recall_req[i] = t["R"]
+    deadline[hard] *= SERVING_HARD_DEADLINE_SCALE
 
     def nprobe_for(R):
         return int(SURFACE_NPROBE[np.argmax(SURFACE_RECALL >= R)])
@@ -474,9 +536,10 @@ def build_serving(seed=0, n_tenants=8, n_per_tenant=2000, rhos=(0.70, 1.00, 1.15
     def p50_for(npb):
         return float(SURFACE_P50[int(np.argmin(np.abs(SURFACE_NPROBE - npb)))])
 
-    base_ms = np.array([0.7 * p50_for(nprobe_for(t["R"]))
-                        + 0.3 * p50_for(min(256, 2 * nprobe_for(t["R"])))
-                        for t in tenants], dtype=np.float64)
+    base_nprobe = np.array([nprobe_for(t["R"]) for t in tenants], dtype=np.int64)
+    base_ms = np.array([(1.0 - hard_frac) * p50_for(base_nprobe[i])
+                        + hard_frac * p50_for(min(256, 2 * base_nprobe[i]))
+                        for i in range(n_tenants)], dtype=np.float64)
     mean_base_ms = float(base_ms.mean())
     if skew is None:
         skew = np.ones(n_tenants, dtype=np.float64)
@@ -500,9 +563,16 @@ def build_serving(seed=0, n_tenants=8, n_per_tenant=2000, rhos=(0.70, 1.00, 1.15
         arrival[k] = trace(rates[k], seed + 100 * k)
         arrival_eval[k] = trace(rates[k], ev_seed + 100 * k)
     return {"tenants": tenants, "hard": hard, "score": score,
+            "deadline": deadline, "recall_req": recall_req,
             "arrival": arrival, "arrival_eval": arrival_eval,
             "rhos": rhos.tolist(), "cores": cores, "skew": skew.tolist(),
             "rates_qps": rates.tolist(), "mean_base_service_ms": mean_base_ms,
+            "base_nprobe": base_nprobe.tolist(),
+            "contracts": [{"name": str(n), "L": float(L), "R": float(R)}
+                          for (n, L, R) in pool],
+            "hard_frac": float(hard_frac),
+            "hard_deadline_scale": float(SERVING_HARD_DEADLINE_SCALE),
+            "overload_rho": float(SERVING_OVERLOAD_RHO),
             "surface": {"nprobe": SURFACE_NPROBE.tolist(),
                         "recall": SURFACE_RECALL.tolist(),
                         "p50": SURFACE_P50.tolist()}}
@@ -523,7 +593,6 @@ def _simulate_partitioned(arr, service, cores, priority=None, reservation=None):
 
     Returns per-query latency in ms and the integer core allocation actually used.
     """
-    import heapq
     T, nq = arr.shape
     if reservation is None:
         res = np.full(T, 1.0 / T)
@@ -582,7 +651,6 @@ def _simulate(arr, service, cores, priority=None, admit=None):
     exercise. Hard partitioning was measured and rejected — with total load near capacity it
     cannot create capacity (see the benchmark README).
     """
-    import heapq
     T, nq = arr.shape
     lat = np.zeros((T, nq), dtype=np.float32)
     pri = np.zeros((T, nq), dtype=np.float64) if priority is None else np.asarray(priority, dtype=np.float64)
@@ -616,65 +684,141 @@ def _simulate(arr, service, cores, priority=None, admit=None):
     return lat
 
 
+def _serving_contract(wl):
+    """Per-query (deadline ms, recall requirement) arrays, with a fallback for old workloads."""
+    hard = np.asarray(wl["hard"], dtype=bool)
+    if "deadline" in wl and wl["deadline"] is not None:
+        deadline = np.asarray(wl["deadline"], dtype=np.float32)
+        recall_req = np.asarray(wl["recall_req"], dtype=np.float32)
+        return deadline, recall_req
+    T, nq = hard.shape
+    scale = float(wl.get("hard_deadline_scale", SERVING_HARD_DEADLINE_SCALE))
+    deadline = np.array([[t["L"]] * nq for t in wl["tenants"]], dtype=np.float32)
+    deadline[hard] *= scale
+    recall_req = np.array([[t["R"]] * nq for t in wl["tenants"]], dtype=np.float32)
+    return deadline, recall_req
+
+
+def _serving_service_recall(wl, efforts):
+    """(service ms, effective recall) for a (T, nq) effort matrix; hard queries are harder."""
+    hard = np.asarray(wl["hard"], dtype=bool)
+    eff = np.asarray(efforts, dtype=np.int64)
+    idx = surface_idx(eff)
+    service = SURFACE_P50[idx].astype(np.float32)
+    rec = SURFACE_RECALL[idx].astype(np.float32)
+    hidx = surface_idx(np.maximum(1, eff // 2))
+    recall = np.where(hard, np.minimum(rec, SURFACE_RECALL[hidx].astype(np.float32)), rec)
+    return service, recall
+
+
+def _serving_traces(wl):
+    traces = wl.get("arrival_eval", wl["arrival"])
+    traces = np.asarray(traces)
+    if traces.ndim == 2:
+        traces = traces[None, :, :]
+    return traces
+
+
+def eval_serving_regime(wl, efforts, priority=None, admission=None, r=0):
+    """Score one load regime of a serving policy.
+
+    Public helper: submissions use it to tune a policy on the *pilot* trace (pass ``wl``
+    without ``arrival_eval``). Returns aggregate pass, per-tenant pass, latency tails,
+    recall-SLO rate and goodput for regime ``r``.
+    """
+    hard = np.asarray(wl["hard"], dtype=bool)
+    nT, nq = hard.shape
+    eff = np.asarray(efforts, dtype=np.int64)
+    if eff.shape != (nT, nq):
+        raise ValueError(f"efforts shape {eff.shape} != {(nT, nq)}")
+    service, recall = _serving_service_recall(wl, eff)
+    pri = None if priority is None else np.asarray(priority, dtype=np.float64)
+    adm = None if admission is None else np.asarray(admission, dtype=bool)
+    deadline, recall_req = _serving_contract(wl)
+    arr = _serving_traces(wl)[int(r)]
+    lat = _simulate(arr, service, int(wl["cores"]), pri, adm)
+    if adm is not None:
+        lat = np.where(adm, lat, 1e6)      # shed queries are not served -> they fail
+    ok = (lat <= deadline) & (recall >= recall_req)
+    span = float(arr.max() - arr.min()) + 1e-9
+    return {"slo_pass": float(ok.mean()),
+            "tenant_pass": [float(x) for x in ok.mean(axis=1)],
+            "p95_latency": float(np.percentile(lat, 95)),
+            "p99_latency": float(np.percentile(lat, 99)),
+            "recall_slo": float((recall >= recall_req).mean()),
+            "goodput_qps": float(ok.sum() / span),
+            "served_frac": float(adm.mean()) if adm is not None else 1.0}
+
+
+def _policy_array(pred, key, dtype, nT, nq, nR):
+    """Read a policy field that may be load-blind (T, nq) or load-indexed (R, T, nq)."""
+    if key not in pred or pred[key] is None:
+        return None
+    a = np.asarray(pred[key])
+    if a.ndim == 2:
+        if a.shape != (nT, nq):
+            raise ValueError(f"{key} shape {a.shape} != {(nT, nq)} (or (R,{nT},{nq}))")
+        return a.astype(dtype)
+    if a.ndim == 3:
+        if a.shape != (nR, nT, nq):
+            raise ValueError(f"{key} shape {a.shape} != {(nR, nT, nq)}")
+        return a.astype(dtype)
+    raise ValueError(f"{key} must be 2-D (T,nq) or 3-D (R,T,nq), got shape {a.shape}")
+
+
 def eval_serving(pred, wl):
     """Score a serving submission across every load regime in the workload.
 
-    A submission may return ``efforts`` (T,nq) and, optionally, ``priority`` (T,nq)
-    where *higher* priority is served first (deadline-aware scheduling, e.g. EDF).
-    Omitting ``priority`` gives plain FCFS. Scoring uses the held-out arrival traces.
+    A submission returns ``efforts`` (T, nq) and, optionally, ``priority`` (T, nq) where
+    *higher* priority is served first (deadline-aware scheduling, e.g. EDF) and
+    ``admission`` (T, nq) of queries that are served at all (shed queries fail their
+    contract). Any of the three fields may instead be shaped (R, T, nq), i.e. one policy
+    per load regime — the load regime is public (the pilot trace ships with the workload),
+    the held-out trace realisation is not.
+
+    Metrics: ``slo_pass`` (mean over regimes), ``slo_pass_worst`` (worst regime),
+    ``slo_pass_overload`` (mean over regimes with rho >= 1.6), ``tenant_pass_worst``
+    (worst tenant in the worst regime — the isolation metric), latency tails, recall-SLO
+    rate and goodput. Scoring uses the held-out arrival traces.
     """
-    efforts = np.asarray(pred.get("efforts", []), dtype=np.int64)
-    nT, nq = wl["hard"].shape
-    if efforts.shape != (nT, nq):
-        return {"error": f"efforts shape {efforts.shape} != {(nT,nq)}"}
-    pri = pred.get("priority")
-    if pri is not None:
-        pri = np.asarray(pri, dtype=np.float64)
-        if pri.shape != (nT, nq):
-            return {"error": f"priority shape {pri.shape} != {(nT,nq)}"}
-    adm = pred.get("admission")
-    if adm is not None:
-        adm = np.asarray(adm, dtype=bool)
-        if adm.shape != (nT, nq):
-            return {"error": f"admission shape {adm.shape} != {(nT,nq)}"}
+    hard = np.asarray(wl["hard"], dtype=bool)
+    nT, nq = hard.shape
+    rhos = [float(x) for x in wl.get("rhos", [1.0])]
+    nR = len(rhos)
+    try:
+        efforts = _policy_array(pred, "efforts", np.int64, nT, nq, nR)
+        if efforts is None:
+            return {"error": "missing efforts"}
+        pri = _policy_array(pred, "priority", np.float64, nT, nq, nR)
+        adm = _policy_array(pred, "admission", bool, nT, nq, nR)
+    except ValueError as e:
+        return {"error": str(e)}
 
-    def lookup(arr, npb):
-        idx = np.argmin(np.abs(SURFACE_NPROBE - npb))
-        return arr[idx]
-
-    service = np.zeros((nT, nq), dtype=np.float32)
-    recall = np.zeros((nT, nq), dtype=np.float32)
-    for i in range(nT):
-        for j in range(nq):
-            npb = int(efforts[i, j])
-            service[i, j] = lookup(SURFACE_P50, npb)
-            r = float(lookup(SURFACE_RECALL, npb))
-            if wl["hard"][i, j]:
-                r2 = float(lookup(SURFACE_RECALL, max(1, npb // 2)))
-                r = min(r, r2)
-            recall[i, j] = r
-
-    L = np.array([[wl["tenants"][i]["L"]] * nq for i in range(nT)], dtype=np.float32)
-    R = np.array([[wl["tenants"][i]["R"]] * nq for i in range(nT)], dtype=np.float32)
-    arr_all = np.asarray(wl.get("arrival_eval", wl["arrival"]))
-    if arr_all.ndim == 2:
-        arr_all = arr_all[None, :, :]
-
-    passes, p95s, p99s, recalls, goodputs = [], [], [], [], []
-    for arr in arr_all:
-        lat = _simulate(arr, service, wl["cores"], pri, adm)
-        if adm is not None:
-            lat = np.where(adm, lat, 1e6)      # shed queries are not served -> they fail
-        ok = (lat <= L) & (recall >= R)
-        passes.append(float(ok.mean()))
-        p95s.append(float(np.percentile(lat, 95)))
-        p99s.append(float(np.percentile(lat, 99)))
-        recalls.append(float((recall >= R).mean()))
-        goodputs.append(float(ok.sum() / (arr.max() - arr.min() + 1e-9)))
+    passes, per_tenant, p95s, p99s, recalls, goodputs, served = [], [], [], [], [], [], []
+    for r in range(nR):
+        e = efforts[r] if efforts.ndim == 3 else efforts
+        p = None if pri is None else (pri[r] if pri.ndim == 3 else pri)
+        a = None if adm is None else (adm[r] if adm.ndim == 3 else adm)
+        m = eval_serving_regime(wl, e, p, a, r)
+        passes.append(m["slo_pass"])
+        per_tenant.append(m["tenant_pass"])
+        p95s.append(m["p95_latency"])
+        p99s.append(m["p99_latency"])
+        recalls.append(m["recall_slo"])
+        goodputs.append(m["goodput_qps"])
+        served.append(m["served_frac"])
+    overload = [i for i, rho in enumerate(rhos) if rho >= SERVING_OVERLOAD_RHO]
+    overload_pass = float(np.mean([passes[i] for i in overload])) if overload else float("nan")
+    tenant_worst = float(min(min(pt) for pt in per_tenant))
     return {"slo_pass": float(np.mean(passes)),
             "slo_pass_worst": float(np.min(passes)),
+            "slo_pass_overload": overload_pass,
+            "tenant_pass_worst": tenant_worst,
             "p95_latency": float(np.mean(p95s)),
             "p99_latency": float(np.mean(p99s)),
             "recall_slo": float(np.mean(recalls)),
             "goodput_qps": float(np.mean(goodputs)),
-            "served_frac": float(np.mean(adm)) if adm is not None else 1.0}
+            "served_frac": float(np.mean(served)),
+            "_rhos": rhos,
+            "_per_regime_slo_pass": [float(x) for x in passes],
+            "_per_regime_tenant_pass": per_tenant}

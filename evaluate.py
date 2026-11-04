@@ -20,10 +20,10 @@ def load_wl(task, wl_dir):
         wl = {"hard": z["hard"], "arrival": z["arrival"],
               "tenants": meta["tenants"], "cores": meta["cores"],
               "rhos": meta.get("rhos", [meta.get("rho")])}
-        for k in ("score", "arrival_eval"):
+        for k in ("score", "arrival_eval", "deadline", "recall_req"):
             if k in z.files:
                 wl[k] = z[k]
-        for k in ("skew", "rates_qps"):
+        for k in ("skew", "rates_qps", "hard_deadline_scale"):
             if k in meta:
                 wl[k] = meta[k]
         return wl
