@@ -1,13 +1,13 @@
 # Where the budget goes at 10M: index-stratified allocation
 
 **One-line result.** At 10M the exact IVF prefix is the wrong lever, but the index is still
-worth ~1.7x: keep the same budget, stratify the sample by IVF cell and allocate it by Neyman's
+worth ~1.8x: keep the same budget, stratify the sample by IVF cell and allocate it by Neyman's
 rule from a per-cell hit probability predicted off the index geometry. Over 8 seeds, mean range
-error **0.0160 ± 0.0013 vs 0.0266 ± 0.0017** for uniformly-budgeted sampling (p95 **0.0586 vs
-0.1015**), at exactly 100,000 distance evaluations per query -- about **2.8x less compute than
-uniform sampling needs to reach the same accuracy**. Allocation from the *true* per-cell hit rates
-reaches 0.0133, so the surrogate leaves a **1.20x** gap on the table: quantified headroom, not a
-free lunch.
+error **0.0147 ± 0.0009 vs 0.0266 ± 0.0017** for uniformly-budgeted sampling (p95 **0.0555 vs
+0.1015**), at exactly 100,000 distance evaluations per query -- **3.3x less compute than uniform
+sampling needs to reach the same accuracy**. Allocation from the *true* per-cell hit rates reaches
+0.0133, so the predictor leaves only a **1.11x** gap: the remaining headroom is measured, and the
+angle-aware predictor in the last table row is what closed most of the original 1.20x.
 
 ## Why this experiment exists
 
@@ -60,8 +60,9 @@ query-to-centroid distances (1% of the budget) plus the 100,000 sampled point di
 |---|---|---|---|
 | uniform sampling, `S = 100,000` (today's 10M plan) | 0.0266 ± 0.0017 | 0.1015 ± 0.0131 | 100,000 |
 | proportional stratification (`s_c ∝ size_c`, no model) | 0.0248 ± 0.0011 | 0.0979 ± 0.0097 | 100,000 |
-| **Neyman allocation (this work)** | **0.0160 ± 0.0013** | **0.0586 ± 0.0063** | 100,000 |
-| Neyman allocation from the *true* per-cell hit rate (allocation ceiling) | 0.0133 ± 0.0007 | 0.0510 ± 0.0038 | 100,000 |
+| Neyman, spherical `p_c` | 0.0160 ± 0.0013 | 0.0586 ± 0.0063 | 100,000 |
+| **Neyman, angle-aware `p_c` (ships)** | **0.0147 ± 0.0009** | **0.0555 ± 0.0049** | 100,000 |
+| Neyman from the *true* per-cell hit rate (allocation ceiling) | 0.0133 ± 0.0007 | 0.0510 ± 0.0038 | 100,000 |
 
 Every estimator gets its own RNG stream per seed (`seed*1000 + {uniform:0, prop:1, neyman:2}`).
 That matters: the first version of this study shared one stream across the three estimators, so
@@ -69,14 +70,16 @@ each estimator's draws depended on how much randomness the *previous* estimator 
 the seed-0 Neyman draw came out at 0.0146 there against 0.0164 with an independent stream. The
 numbers above are the independent-stream protocol; the ordering holds in 8 of 8 seeds.
 
-Single-draw rows for the prefix sweep (seed 0, same budget; the estimator is deterministic given
-the index, only the sampling is random, so the front-to-back ordering inside one seed is exact):
+The prefix sweep is a single RNG state on purpose: the estimator is deterministic given the index,
+so within one seed the front-to-back ordering across prefix sizes is exact, which is the only
+thing that table claims. All `p_c` values in this sweep are the *spherical* form; read these rows
+for ordering, not as estimates of the mean (the seed-averaged table above is the estimate).
 
-| plan | mean rel. err ↓ | p95 ↓ | cost / query |
+| plan (spherical `p_c`, one seed) | mean rel. err ↓ | p95 ↓ | cost / query |
 |---|---|---|---|
-| uniform sampling, seed 0 | 0.0297 | 0.1222 | 100,000 |
-| Neyman allocation, seed 0 | 0.0147 | 0.0539 | 100,000 |
-| Neyman from true per-cell rates, seed 0 | 0.0148 | 0.0611 | 100,000 |
+| uniform sampling | 0.0297 | 0.1222 | 100,000 |
+| Neyman allocation, no prefix | 0.0147 | 0.0539 | 100,000 |
+| Neyman from true per-cell rates | 0.0148 | 0.0611 | 100,000 |
 | exact prefix 16 lists + Neyman residual | 0.0173 | 0.0681 | 100,000 |
 | exact prefix 32 lists + Neyman residual | 0.0189 | 0.0649 | 100,000 |
 | exact prefix 64 lists + Neyman residual | 0.0217 | 0.0940 | 100,000 |
@@ -91,19 +94,19 @@ Budget sweep (same code, corrected estimator):
 
 ## Reading
 
-1. **Allocation is worth 1.66x at identical cost** (8 seeds; 1.73x on the tail), and 2.76x at
-   identical accuracy. It costs 1% of the budget in query-to-centroid distances and nothing at
+1. **Allocation is worth 1.81x at identical cost** (8 seeds, angle-aware predictor; 1.83x on the
+   tail), and 3.27x at identical accuracy. The spherical predictor alone gives 1.66x, so the
+   angle term is worth another 1.09x and is what makes the ceiling claim nearly tight (1.11x). It costs 1% of the budget in query-to-centroid distances and nothing at
    build time beyond the quantiles the index already needs. The ratios moved as the protocol
    got stricter (2.03x single-draw -> 1.73x over 5 shared-stream seeds -> 1.66x over 8
    independent streams); quote the strictest one, and note that the ordering never reverses
    within a seed.
-2. **The surrogate is imperfect, and the gap is measured.** Allocating from the *true* per-cell
-   hit rate reaches 0.0133 ± 0.0007 against our 0.0160 ± 0.0013 -- a **1.20x** gap that is entirely
-   attributable to the spherical-cell approximation behind `p_c = F_c(sqrt(r^2 - d_c^2))` (it
-   ignores the angle between `q - c` and `x - c`, which is not exactly 90 degrees). So the
-   remaining work has a concrete target: an angle-aware or empirically calibrated `p_c` is worth
-   up to 1.20x, and finer strata (more, smaller cells, or two-level stratification) is the next
-   lever after that. This is stated as headroom, and the oracle row is what makes it checkable.
+2. **The surrogate was diagnosable, and the diagnosis paid.** Allocating from the *true* per-cell
+   hit rates reaches 0.0133 ± 0.0007. The spherical model got 0.0160 (a 1.20x gap); the offline
+   calibration in the next section traced that gap to the term the spherical identity drops, and
+   keeping it (angle-aware `p_c`) moved the estimator to 0.0147 -- a 1.11x gap left. That is the
+   pattern worth copying: measure the ceiling, attribute the gap offline against cached truth,
+   then fix the specific term rather than tuning blind.
 3. **Proportional stratification alone already beats uniform sampling by 22%.** That is the
    signature of genuine stratum homogeneity: compact cells have less within-stratum variation in
    hit rate than the collection as a whole. It also confirms the machinery is not doing anything
@@ -118,7 +121,7 @@ Budget sweep (same code, corrected estimator):
    The decision rule is a *mass* comparison, not a scale comparison: probe a list exactly while
    `list population / N` is comparable to the fraction of ball mass that list carries.
 5. **Cost equivalence.** Relative error of these estimators scales like `1/sqrt(S)`, so matching
-   0.0160 by uniform sampling needs `(0.0266/0.0160)^2 ≈ 2.8x` the budget -- about 276,000
+   0.0147 by uniform sampling needs `(0.0266/0.0147)^2 ≈ 3.3x` the budget -- about 327,000
    distance evaluations per query at 10M. The planner in `baselines/reference.py` therefore uses
    stratification above 2M vectors and the two-phase plan below it, chosen by the mass rule in (4).
 
@@ -128,13 +131,14 @@ Budget sweep (same code, corrected estimator):
   sketching the boundary cells) could go below 0.0133. The measured oracle-allocation row bounds
   what *this* lever can give with a perfect predictor, and it says a better predictor still has
   1.20x available.
-* The improvement is 1.66x at matched cost, not an order of magnitude. At 10M the dominant cost
+* The improvement is 1.81x at matched cost, not an order of magnitude. At 10M the dominant cost
   is that the ball is a thin shell (0.4% selectivity at the smallest radius), and no index trick
   removes the need to look at points.
 * The benchmark-level gain is smaller than the estimator-level gain because in the full analytics
   submission the coverage and join parts dominate the reported cost (2.32e7 -> 2.42e7, +4.3%):
-  range error 0.02970 -> 0.01716, p95 0.1222 -> 0.0762, coverage 1.00 and join recall 0.9985
-  unchanged.
+  range error 0.02970 -> 0.01616, p95 0.1222 -> 0.0644, coverage 1.00 and join recall 0.9985
+  unchanged. That submission row is a single run; the seed-averaged estimator figure above is
+  0.0147, so the shipped row is the conservative one.
 
 ## Predictor calibration: where the 1.20x headroom comes from
 
@@ -159,10 +163,9 @@ Two things worth stating because they are easy to get wrong:
 * **The model-only count error (48%/31%) is not the estimator's error (1.6%).** The estimator is
   unbiased for any allocation, so a crude `p_c` costs variance only. The 48%/31% numbers are the
   right diagnostic for *allocation quality*, not for accuracy.
-* **This is a target, not a claim.** The angle-aware allocation has not yet been measured through
-  the estimator (the host went offline for re-authentication mid-run); the offline calibration
-  above bounds what it can buy -- at most the 1.20x that separates us from the oracle allocation,
-  and probably part of it.
+* **From diagnosis to result.** The angle-aware allocation was measured through the estimator
+  afterwards (8 seeds, independent streams): **0.0147 ± 0.0009**, p95 0.0555 ± 0.0049 -- it recovers
+  most of the 1.20x gap, and it is what `baselines/reference.py` ships (`_cell_hit_prob_angle`).
 
 ## Raw numbers
 

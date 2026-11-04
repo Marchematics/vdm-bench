@@ -145,7 +145,7 @@ spanning 0.4%-46% selectivity, coverage ground truth 37 of 100 anchor-radius pai
 | `uniform-sampling` (S=10k) | 0.223 | 1.000 | 0.00 | 0.000 | 1.0e6 |
 | `ivf-plan` | 0.386 | 0.806 | 0.00 | 0.000 | 6.3e8 |
 | `ana-vec-sampling` (uniform S=100k, ablation) | 0.0297 | 0.122 | 1.00 | 0.9985 | 2.32e7 |
-| **`ana-vec`** | **0.0172** | **0.0762** | **1.00** | **0.9985** | 2.42e7 |
+| **`ana-vec`** | **0.0162** | **0.0644** | **1.00** | **0.9985** | 2.42e7 |
 
 At 10M the exact-prefix plan of the 100k submission is no longer the right lever: probing *k*
 inverted lists exactly stops paying once a list is a small fraction of the collection, and the
@@ -155,18 +155,19 @@ residual sample is then starved (measured: the same recipe degrades to 0.0775 at
 from a per-cell hit probability predicted off the index geometry, and estimate a stratified sum
 (unbiased for any positive allocation, so prediction error costs variance, never correctness).
 Measured at a matched budget of 100,000 distance evaluations per query, over 8 seeds with
-independent RNG per estimator: **0.0160 ± 0.0013 vs 0.0266 ± 0.0017** for uniform sampling
-(1.66x; p95 0.059 vs 0.102), i.e. ~2.8x less compute than uniform sampling needs for the same
-accuracy. Allocating from the *true* per-cell hit rates reaches 0.0133, so a better hit-rate
-predictor still has 1.20x available -- headroom that is measured rather than assumed
-(`experiments/stratification_10m.md`).
+independent RNG per estimator: **0.0147 ± 0.0009 vs 0.0266 ± 0.0017** for uniform sampling
+(1.81x; p95 0.056 vs 0.102), i.e. ~3.3x less compute than uniform sampling needs for the same
+accuracy. The per-cell hit rate is predicted angle-aware -- keeping the `cos(theta)` term the
+spherical identity drops -- which is worth 1.09x over the spherical form and leaves only 1.11x
+against allocation at the *true* per-cell rates (0.0133). Both the ceiling and the gap are
+measured (`experiments/stratification_10m.md`).
 
-Read against the baselines: **13.0x better range error than `uniform-sampling`**, 22.5x better
+Read against the baselines: **13.8x better range error than `uniform-sampling`**, 23.9x better
 than `ivf-plan` at 26x *less* cost, the only submission with non-zero coverage and join recall,
-and 1.73x better than its own same-family ablation `ana-vec-sampling` at +4.3% cost. The
+and 1.84x better than its own same-family ablation `ana-vec-sampling` at +4.3% cost. The
 ablation is the point: the difference between this row and the ablation is one design decision
 -- *where the samples go* -- not more compute. (Submission rows are single runs; the estimator
-study reports the seed-averaged ratio, 1.66x over 8 independent streams, and the ordering holds
+study reports the seed-averaged ratio, 1.81x over 8 independent streams, and the ordering holds
 in 8 of 8 seeds.)
 
 ## Quality task: published rules, exact ground truth
