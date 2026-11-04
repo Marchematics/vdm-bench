@@ -136,6 +136,34 @@ Budget sweep (same code, corrected estimator):
   range error 0.02970 -> 0.01716, p95 0.1222 -> 0.0762, coverage 1.00 and join recall 0.9985
   unchanged.
 
+## Predictor calibration: where the 1.20x headroom comes from
+
+The oracle-allocation row says a perfect per-cell hit rate would give 0.0133 instead of 0.0160.
+The true per-cell rates are cached by `scripts/strat_oracle_seeds.py`, so the surrogate can be
+scored against them offline, with no sampling at all (`scripts/diag_predictor.py`, 25 queries x 5
+radii x 10,000 cells):
+
+| model | corr with true p_c | RMSE | bias | model-only count error |
+|---|---|---|---|---|
+| spherical `p_c = F_c(sqrt(r^2 - d_c^2))` (ships today) | 0.847 | 0.0809 | −0.033 | **0.481** |
+| angle-aware, `cos(theta) ~ N(0, 1/dim)` | **0.954** | **0.0460** | −0.024 | **0.306** |
+
+So the gap is exactly what the spherical identity drops: `d(q,x)^2 = d_c^2 + t^2 - 2 d_c t
+cos(theta)` sets `cos(theta) = 0`, but for isotropic points around a centroid `cos(theta)` has
+standard deviation `1/sqrt(dim)` (= 0.088 at dim 128), which is not negligible when `d_c` and `t`
+are of similar size. Keeping the term and integrating `t` over the cell's own quantiles lifts the
+correlation from 0.85 to 0.95 and cuts the model-only count error from 48% to 31%.
+
+Two things worth stating because they are easy to get wrong:
+
+* **The model-only count error (48%/31%) is not the estimator's error (1.6%).** The estimator is
+  unbiased for any allocation, so a crude `p_c` costs variance only. The 48%/31% numbers are the
+  right diagnostic for *allocation quality*, not for accuracy.
+* **This is a target, not a claim.** The angle-aware allocation has not yet been measured through
+  the estimator (the host went offline for re-authentication mid-run); the offline calibration
+  above bounds what it can buy -- at most the 1.20x that separates us from the oracle allocation,
+  and probably part of it.
+
 ## Raw numbers
 
 The four result files behind the tables are committed under `experiments/data/`:

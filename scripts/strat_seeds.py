@@ -32,13 +32,14 @@ N, nlist = len(X), int(min(16384, len(X) // 1000))
 C, assign, sizes, order, off, grid, qs = ss.load_or_build_cells(X, nlist, a.cache)
 dQX = np.einsum("ij,ij->i", X, X); dQ = np.sqrt(core.pairwise(Q, C))
 S = a.budget
-out = {"uniform": [], "prop": [], "neyman": []}
+out = {"uniform": [], "prop": [], "neyman": [], "neyman_angle": []}
 for seed in range(a.seeds):
-    for kind in ("uniform", "prop", "neyman"):
+    for kind in ("uniform", "prop", "neyman", "neyman_angle"):
         # independent stream per (seed, estimator): a shared stream would couple the three
         # estimators' draws and made the ratios depend on consumption order in the first
         # version of this script (one rng state gave 0.0146 where a fresh one gives 0.0172).
-        rng = np.random.RandomState(1000 * seed + {"uniform": 0, "prop": 1, "neyman": 2}[kind])
+        rng = np.random.RandomState(1000 * seed + {"uniform": 0, "prop": 1, "neyman": 2,
+                                                   "neyman_angle": 3}[kind])
         est = np.zeros_like(truth, dtype=np.float64)
         for i, q in enumerate(Q):
             q2 = float(q @ q)
@@ -53,7 +54,10 @@ for seed in range(a.seeds):
             else:
                 Ws = []
                 for r in radii:
-                    p = ss.cell_hit_prob(dQ[i], float(r), grid, qs)
+                    if kind == "neyman_angle":
+                        p = ss.cell_hit_prob_angle(dQ[i], float(r), grid, qs, X.shape[1])
+                    else:
+                        p = ss.cell_hit_prob(dQ[i], float(r), grid, qs)
                     pc = np.clip(p, 1e-3, 1 - 1e-3)
                     w = sizes * np.sqrt(pc * (1 - pc))
                     Ws.append(w / w.sum())
