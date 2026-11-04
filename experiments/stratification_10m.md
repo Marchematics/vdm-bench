@@ -1,11 +1,13 @@
 # Where the budget goes at 10M: index-stratified allocation
 
 **One-line result.** At 10M the exact IVF prefix is the wrong lever, but the index is still
-worth 2x: keep the same budget, stratify the sample by IVF cell and allocate it by Neyman's
-rule from a per-cell hit probability predicted off the index geometry. Mean range error
-**0.0147 vs 0.0297** for uniformly-budgeted sampling (p95 **0.0539 vs 0.1222**), at exactly
-100,000 distance evaluations per query, and the estimator is at the ceiling of what *any*
-cell-based allocation can do (oracle allocation: 0.0148).
+worth ~1.7x: keep the same budget, stratify the sample by IVF cell and allocate it by Neyman's
+rule from a per-cell hit probability predicted off the index geometry. Over 8 seeds, mean range
+error **0.0160 ± 0.0013 vs 0.0266 ± 0.0017** for uniformly-budgeted sampling (p95 **0.0586 vs
+0.1015**), at exactly 100,000 distance evaluations per query -- about **2.8x less compute than
+uniform sampling needs to reach the same accuracy**. Allocation from the *true* per-cell hit rates
+reaches 0.0133, so the surrogate leaves a **1.20x** gap on the table: quantified headroom, not a
+free lunch.
 
 ## Why this experiment exists
 
@@ -52,12 +54,29 @@ query-to-centroid distances (1% of the budget) plus the 100,000 sampled point di
 
 100,000 distance evaluations per query, all rows identical in cost unless stated.
 
+5 seeds, mean ± sd over seeds (each seed re-draws every sample; the cell structure is built once):
+
 | plan | mean rel. err ↓ | p95 ↓ | cost / query |
 |---|---|---|---|
-| uniform sampling, `S = 100,000` (today's 10M plan) | 0.0297 | 0.1222 | 100,000 |
-| proportional stratification (`s_c ∝ size_c`, no model) | 0.0233 | 0.0905 | 100,000 |
-| **Neyman allocation (this work)** | **0.0147** | **0.0539** | 100,000 |
-| Neyman allocation from the *true* per-cell hit rate (ceiling) | 0.0148 | 0.0611 | 100,000 |
+| uniform sampling, `S = 100,000` (today's 10M plan) | 0.0266 ± 0.0017 | 0.1015 ± 0.0131 | 100,000 |
+| proportional stratification (`s_c ∝ size_c`, no model) | 0.0248 ± 0.0011 | 0.0979 ± 0.0097 | 100,000 |
+| **Neyman allocation (this work)** | **0.0160 ± 0.0013** | **0.0586 ± 0.0063** | 100,000 |
+| Neyman allocation from the *true* per-cell hit rate (allocation ceiling) | 0.0133 ± 0.0007 | 0.0510 ± 0.0038 | 100,000 |
+
+Every estimator gets its own RNG stream per seed (`seed*1000 + {uniform:0, prop:1, neyman:2}`).
+That matters: the first version of this study shared one stream across the three estimators, so
+each estimator's draws depended on how much randomness the *previous* estimator had consumed, and
+the seed-0 Neyman draw came out at 0.0146 there against 0.0164 with an independent stream. The
+numbers above are the independent-stream protocol; the ordering holds in 8 of 8 seeds.
+
+Single-draw rows for the prefix sweep (seed 0, same budget; the estimator is deterministic given
+the index, only the sampling is random, so the front-to-back ordering inside one seed is exact):
+
+| plan | mean rel. err ↓ | p95 ↓ | cost / query |
+|---|---|---|---|
+| uniform sampling, seed 0 | 0.0297 | 0.1222 | 100,000 |
+| Neyman allocation, seed 0 | 0.0147 | 0.0539 | 100,000 |
+| Neyman from true per-cell rates, seed 0 | 0.0148 | 0.0611 | 100,000 |
 | exact prefix 16 lists + Neyman residual | 0.0173 | 0.0681 | 100,000 |
 | exact prefix 32 lists + Neyman residual | 0.0189 | 0.0649 | 100,000 |
 | exact prefix 64 lists + Neyman residual | 0.0217 | 0.0940 | 100,000 |
@@ -72,14 +91,19 @@ Budget sweep (same code, corrected estimator):
 
 ## Reading
 
-1. **Allocation is worth 2.0x at identical cost**, and 2.3x on the tail (p95). It costs 1% of
-   the budget in query-to-centroid distances and nothing at build time beyond the quantiles the
-   index already needs.
-2. **The surrogate is not the bottleneck.** Allocating from the *true* per-cell hit rate scores
-   0.0148 -- statistically the same as our 0.0147. So the model already extracts everything
-   this lever can give; the residual error is the irreducible variance of cell-stratified
-   sampling at this budget, not prediction error. The honest follow-up axis is therefore *finer
-   strata* (more, smaller cells, or a second level of stratification), not a better predictor.
+1. **Allocation is worth 1.66x at identical cost** (8 seeds; 1.73x on the tail), and 2.76x at
+   identical accuracy. It costs 1% of the budget in query-to-centroid distances and nothing at
+   build time beyond the quantiles the index already needs. The ratios moved as the protocol
+   got stricter (2.03x single-draw -> 1.73x over 5 shared-stream seeds -> 1.66x over 8
+   independent streams); quote the strictest one, and note that the ordering never reverses
+   within a seed.
+2. **The surrogate is imperfect, and the gap is measured.** Allocating from the *true* per-cell
+   hit rate reaches 0.0133 ± 0.0007 against our 0.0160 ± 0.0013 -- a **1.20x** gap that is entirely
+   attributable to the spherical-cell approximation behind `p_c = F_c(sqrt(r^2 - d_c^2))` (it
+   ignores the angle between `q - c` and `x - c`, which is not exactly 90 degrees). So the
+   remaining work has a concrete target: an angle-aware or empirically calibrated `p_c` is worth
+   up to 1.20x, and finer strata (more, smaller cells, or two-level stratification) is the next
+   lever after that. This is stated as headroom, and the oracle row is what makes it checkable.
 3. **Proportional stratification alone already beats uniform sampling by 22%.** That is the
    signature of genuine stratum homogeneity: compact cells have less within-stratum variation in
    hit rate than the collection as a whole. It also confirms the machinery is not doing anything
@@ -94,22 +118,32 @@ Budget sweep (same code, corrected estimator):
    The decision rule is a *mass* comparison, not a scale comparison: probe a list exactly while
    `list population / N` is comparable to the fraction of ball mass that list carries.
 5. **Cost equivalence.** Relative error of these estimators scales like `1/sqrt(S)`, so matching
-   0.0147 by uniform sampling needs `(0.0297/0.0147)^2 ≈ 4.1x` the budget -- about 410,000
+   0.0160 by uniform sampling needs `(0.0266/0.0160)^2 ≈ 2.8x` the budget -- about 276,000
    distance evaluations per query at 10M. The planner in `baselines/reference.py` therefore uses
    stratification above 2M vectors and the two-phase plan below it, chosen by the mass rule in (4).
 
 ## What this does *not* claim
 
 * It is not a lower bound: a different estimator family (e.g. multi-level stratification, or
-  sketching the boundary cells) could go below 0.0147. The claim is that within cell-stratified
-  sampling the allocation is optimal up to model error, which is measured.
-* The improvement is 2.0x, not an order of magnitude. At 10M the dominant cost is that the ball
-  is a thin shell (0.4% selectivity at the smallest radius), and no index trick removes the need
-  to look at points.
+  sketching the boundary cells) could go below 0.0133. The measured oracle-allocation row bounds
+  what *this* lever can give with a perfect predictor, and it says a better predictor still has
+  1.20x available.
+* The improvement is 1.66x at matched cost, not an order of magnitude. At 10M the dominant cost
+  is that the ball is a thin shell (0.4% selectivity at the smallest radius), and no index trick
+  removes the need to look at points.
 * The benchmark-level gain is smaller than the estimator-level gain because in the full analytics
   submission the coverage and join parts dominate the reported cost (2.32e7 -> 2.42e7, +4.3%):
   range error 0.02970 -> 0.01716, p95 0.1222 -> 0.0762, coverage 1.00 and join recall 0.9985
   unchanged.
+
+## Raw numbers
+
+The four result files behind the tables are committed under `experiments/data/`:
+`strat_prefix_sift10m.json` (prefix sweep + single-draw rows), `strat_study_sift10m.json`
+(uniform/proportional/Neyman at two budgets), `strat_seeds_sift10m.json` (8 independent streams
+per estimator) and `strat_oracle_sift10m.json` (oracle allocation, 5 seeds). Submission
+predictions and the cell cache are regenerable and therefore not committed (the repo does not
+redistribute predictions or vectors).
 
 ## Reproduce
 
@@ -119,5 +153,6 @@ python scripts/strat_prefix.py --cache results_remote/cells_sift10m.npz \
     --kps 0,16,32,64,128 --budget 100000 --oracle     # tables above
 python scripts/strat_study.py  --cache results_remote/cells_sift10m.npz \
     --budgets 40000,100000                             # budget sweep + calibration
-python scripts/strat_seeds.py  --cache results_remote/cells_sift10m.npz --seeds 5
+python scripts/strat_seeds.py  --cache results_remote/cells_sift10m.npz --seeds 8
+python scripts/strat_oracle_seeds.py --cache results_remote/cells_sift10m.npz --seeds 5
 ```

@@ -18,7 +18,7 @@ ap.add_argument("--dataset", default="sift10m")
 ap.add_argument("--n", type=int, default=10_000_000)
 ap.add_argument("--data-root", default=os.path.expanduser("~/vdm/data"))
 ap.add_argument("--budget", type=int, default=100_000)
-ap.add_argument("--seeds", type=int, default=5)
+ap.add_argument("--seeds", type=int, default=8)
 ap.add_argument("--cache", default=None)
 a = ap.parse_args()
 
@@ -34,8 +34,11 @@ dQX = np.einsum("ij,ij->i", X, X); dQ = np.sqrt(core.pairwise(Q, C))
 S = a.budget
 out = {"uniform": [], "prop": [], "neyman": []}
 for seed in range(a.seeds):
-    rng = np.random.RandomState(seed)
     for kind in ("uniform", "prop", "neyman"):
+        # independent stream per (seed, estimator): a shared stream would couple the three
+        # estimators' draws and made the ratios depend on consumption order in the first
+        # version of this script (one rng state gave 0.0146 where a fresh one gives 0.0172).
+        rng = np.random.RandomState(1000 * seed + {"uniform": 0, "prop": 1, "neyman": 2}[kind])
         est = np.zeros_like(truth, dtype=np.float64)
         for i, q in enumerate(Q):
             q2 = float(q @ q)
