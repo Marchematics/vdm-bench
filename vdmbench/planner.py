@@ -623,7 +623,10 @@ class ServingPlanner:
       cannot pass and would burn capacity);
     * admission: under overload, admit the *cheapest* contract classes first (each query is
       worth the same in the pass metric, so maximising served contracts subject to the
-      capacity budget is a unit-value knapsack, solved by the greedy cost order);
+      capacity budget is a unit-value knapsack, solved by the greedy cost order), then refine
+      it with the **queue state**: the pilot trace is simulated with the candidate admission,
+      admitted queries the queue predicts will miss their deadline (their debt) are shed, and
+      the freed budget is refilled with the cheapest remaining candidates;
     * scheduling: earliest-deadline-first, which is the contract's own ordering (priority =
       -deadline), not a tuned parameter.
 
@@ -659,7 +662,66 @@ class ServingPlanner:
         feasible = (service <= deadline) & (eff_recall >= recall_req)
         return effort, service, eff_recall, feasible, deadline, recall_req
 
-    def _build(self, wl, rates, u_target):
+    @staticmethod
+    def _knapsack(w, feasible, budget, service):
+        """Cheapest-*service*-first unit-value knapsack (the pre-debt admission rule)."""
+        T, nq = w.shape
+        adm = np.zeros((T, nq), dtype=bool)
+        if w.sum() <= budget:
+            return feasible.copy()
+        ii, jj = np.nonzero(feasible)
+        order = np.argsort(service[ii, jj], kind="stable")
+        cum = np.cumsum(w[ii[order], jj[order]])
+        keep = cum <= budget
+        adm[ii[order][keep], jj[order][keep]] = True
+        return adm
+
+    @staticmethod
+    def _debt_refine(arr, service, cores, deadline, w, feasible, adm, budget, rounds=2):
+        """Queue-state (debt) admission: use the pilot queue to shed predicted misses.
+
+        The static knapsack prices admission as long-run load and assumes an admitted query
+        passes.  The pilot trace shows the *transient* queue state instead: some admitted
+        queries are predicted to miss their deadline (their "debt"), and their capacity is
+        better spent on next-cheapest queries.  One round = simulate the pilot queue with the
+        current admission, shed the admitted queries the queue predicts will miss, then refill
+        the freed budget from the cheapest remaining candidates; the debt-shed set is kept
+        excluded so the refill cannot re-admit it.  Returns the admission with the best pilot
+        per-regime pass over the rounds.
+        """
+        T, nq = service.shape
+        pri = -deadline
+        ii, jj = np.nonzero(feasible)
+        order = np.argsort(service[ii, jj], kind="stable")
+        best = adm.copy()
+        best_m = -1.0
+        excluded = np.zeros((T, nq), dtype=bool)
+        for _ in range(max(1, rounds)):
+            lat = core._simulate(np.asarray(arr, dtype=np.float64), service, cores, pri, adm)
+            passed = adm & (lat <= deadline)
+            m = float(passed.mean())
+            if m > best_m:
+                best, best_m = adm.copy(), m
+            excluded |= adm & ~(lat <= deadline)
+            new = adm & (lat <= deadline)
+            load = float(w[new].sum())
+            for k in order:
+                i, j = ii[k], jj[k]
+                if new[i, j] or excluded[i, j]:
+                    continue
+                if load + w[i, j] <= budget:
+                    new[i, j] = True
+                    load += w[i, j]
+            if np.array_equal(new, adm):
+                break
+            adm = new
+        lat = core._simulate(np.asarray(arr, dtype=np.float64), service, cores, pri, adm)
+        m = float((adm & (lat <= deadline)).mean())
+        if m > best_m:
+            best = adm.copy()
+        return best
+
+    def _build(self, wl, rates, u_target, debt_rounds=2):
         T, nq = wl["hard"].shape
         rhos = [float(x) for x in wl.get("rhos", [1.0])]
         nR = len(rhos)
@@ -669,25 +731,21 @@ class ServingPlanner:
         out_eff = np.zeros((nR, T, nq), dtype=np.int64)
         out_pri = np.zeros((nR, T, nq), dtype=np.float64)
         out_adm = np.zeros((nR, T, nq), dtype=bool)
+        arrival = wl.get("arrival")
         for r in range(nR):
             lam = np.asarray(rates[r], dtype=np.float64)          # queries/sec per tenant
             w = lam[:, None] * service / nq                       # ms/sec per admitted query
             w = np.where(feasible, w, 0.0)
-            adm = np.zeros((T, nq), dtype=bool)
-            if w.sum() <= u_target * cap:
-                adm = feasible.copy()
-            else:
-                ii, jj = np.nonzero(feasible)
-                order = np.argsort(service[ii, jj], kind="stable")
-                cum = np.cumsum(w[ii[order], jj[order]])
-                keep = cum <= u_target * cap
-                adm[ii[order][keep], jj[order][keep]] = True
+            adm = self._knapsack(w, feasible, u_target * cap, service)
+            if debt_rounds and arrival is not None:
+                adm = self._debt_refine(arrival[r], service, cores, deadline, w, feasible,
+                                        adm, u_target * cap, rounds=debt_rounds)
             out_eff[r] = effort
             out_pri[r] = -deadline
             out_adm[r] = adm
         return {"efforts": out_eff, "priority": out_pri, "admission": out_adm}
 
-    def plan(self, wl, u_target=None, calibrate=True):
+    def plan(self, wl, u_target=None, calibrate=True, debt_rounds=2):
         """Return a serving policy plus the calibration it chose.
 
         ``wl`` must be the *pilot* workload (``arrival``, no ``arrival_eval``) when
@@ -709,7 +767,7 @@ class ServingPlanner:
                 raise ValueError("u_target not given and calibrate=False")
             best = None
             for u in self.U_GRID:
-                pol = self._build(pilot, rates, u)
+                pol = self._build(pilot, rates, u, debt_rounds=debt_rounds)
                 m = core.eval_serving(pol, pilot)
                 calib.append({"u": float(u), "pilot_slo_pass": float(m["slo_pass"]),
                               "pilot_worst": float(m["slo_pass_worst"])})
@@ -717,7 +775,7 @@ class ServingPlanner:
                 if best is None or key > best[0]:
                     best = (key, u)
             u_target = best[1]
-        pol = self._build(pilot, rates, u_target)
+        pol = self._build(pilot, rates, u_target, debt_rounds=debt_rounds)
         pol["u_target"] = float(u_target)
         pol["calibration"] = calib
         return pol

@@ -261,15 +261,15 @@
     }
    },
    "planner": {
-    "slo_pass": 0.5423571428571429,
+    "slo_pass": 0.5543303571428572,
     "slo_pass_worst": 0.3205,
-    "slo_pass_overload": 0.41918750000000005,
+    "slo_pass_overload": 0.43228125000000006,
     "tenant_pass_worst": 0.0,
-    "p95_latency": 209.18661212921143,
-    "p99_latency": 243.88125950949532,
+    "p95_latency": 21.74487100328718,
+    "p99_latency": 45.80776173727853,
     "recall_slo": 1.0,
-    "goodput_qps": 2819.3034246289094,
-    "served_frac": 0.5680267857142857,
+    "goodput_qps": 2889.0859581565883,
+    "served_frac": 0.5575089285714285,
     "per_regime": {
      "rhos": [
       0.7,
@@ -281,16 +281,16 @@
       3.0
      ],
      "slo_pass": [
-      0.8345,
-      0.6116875,
+      0.8261875,
+      0.6514375,
       0.6735625,
       0.548625,
-      0.41075,
+      0.463125,
       0.396875,
       0.3205
      ],
      "worst_tenant_pass": [
-      0.015,
+      0.01,
       0.0,
       0.0,
       0.0,
@@ -299,11 +299,11 @@
       0.0
      ],
      "served_frac": [
-      0.8393125,
-      0.71075,
+      0.835875,
+      0.66225,
       0.6735625,
       0.5486875,
-      0.4865,
+      0.4648125,
       0.396875,
       0.3205
      ]
@@ -317,47 +317,47 @@
      },
      {
       "u": 0.8,
-      "pilot_slo_pass": 0.5082053571428572,
+      "pilot_slo_pass": 0.5082767857142857,
       "pilot_worst": 0.2461875
      },
      {
       "u": 0.85,
-      "pilot_slo_pass": 0.5304642857142857,
+      "pilot_slo_pass": 0.5307410714285714,
       "pilot_worst": 0.278875
      },
      {
       "u": 0.9,
-      "pilot_slo_pass": 0.5313660714285714,
+      "pilot_slo_pass": 0.5425892857142858,
       "pilot_worst": 0.305125
      },
      {
       "u": 0.94,
-      "pilot_slo_pass": 0.5416785714285715,
+      "pilot_slo_pass": 0.5561607142857142,
       "pilot_worst": 0.3205
      },
      {
       "u": 0.95,
-      "pilot_slo_pass": 0.5321607142857142,
+      "pilot_slo_pass": 0.5455,
       "pilot_worst": 0.3243125
      },
      {
       "u": 0.96,
-      "pilot_slo_pass": 0.5310089285714285,
+      "pilot_slo_pass": 0.5378392857142857,
       "pilot_worst": 0.328125
      },
      {
       "u": 0.97,
-      "pilot_slo_pass": 0.5312232142857142,
+      "pilot_slo_pass": 0.5373482142857142,
       "pilot_worst": 0.332
      },
      {
       "u": 0.98,
-      "pilot_slo_pass": 0.5316785714285713,
+      "pilot_slo_pass": 0.5385714285714285,
       "pilot_worst": 0.3358125
      },
      {
       "u": 0.99,
-      "pilot_slo_pass": 0.5329464285714286,
+      "pilot_slo_pass": 0.5405535714285714,
       "pilot_worst": 0.339625
      }
     ]
@@ -371,57 +371,57 @@
     },
     {
      "u": 0.8,
-     "slo_pass": 0.5080892857142857,
+     "slo_pass": 0.5080625,
      "slo_pass_worst": 0.2461875,
      "slo_pass_overload": 0.379140625
     },
     {
      "u": 0.85,
-     "slo_pass": 0.5304553571428572,
+     "slo_pass": 0.5303928571428572,
      "slo_pass_worst": 0.278875,
      "slo_pass_overload": 0.404109375
     },
     {
      "u": 0.9,
-     "slo_pass": 0.5303482142857143,
+     "slo_pass": 0.54,
      "slo_pass_worst": 0.305125,
-     "slo_pass_overload": 0.40925
+     "slo_pass_overload": 0.41753125
     },
     {
      "u": 0.94,
-     "slo_pass": 0.5423571428571429,
+     "slo_pass": 0.5543303571428572,
      "slo_pass_worst": 0.3205,
-     "slo_pass_overload": 0.41918750000000005
+     "slo_pass_overload": 0.43228125000000006
     },
     {
      "u": 0.95,
-     "slo_pass": 0.5368839285714285,
+     "slo_pass": 0.5480982142857143,
      "slo_pass_worst": 0.3243125,
-     "slo_pass_overload": 0.42276562500000003
+     "slo_pass_overload": 0.4318125
     },
     {
      "u": 0.96,
-     "slo_pass": 0.525,
+     "slo_pass": 0.530875,
      "slo_pass_worst": 0.328125,
-     "slo_pass_overload": 0.41314062500000004
+     "slo_pass_overload": 0.4190625
     },
     {
      "u": 0.97,
-     "slo_pass": 0.5254553571428571,
+     "slo_pass": 0.5294642857142857,
      "slo_pass_worst": 0.332,
-     "slo_pass_overload": 0.415859375
+     "slo_pass_overload": 0.421234375
     },
     {
      "u": 0.98,
-     "slo_pass": 0.5266249999999999,
+     "slo_pass": 0.5313392857142857,
      "slo_pass_worst": 0.3358125,
-     "slo_pass_overload": 0.41946875
+     "slo_pass_overload": 0.42484375
     },
     {
      "u": 0.99,
-     "slo_pass": 0.5275625,
+     "slo_pass": 0.5329732142857143,
      "slo_pass_worst": 0.339625,
-     "slo_pass_overload": 0.4230625
+     "slo_pass_overload": 0.428421875
     }
    ]
   },
@@ -672,15 +672,15 @@
     }
    },
    "planner": {
-    "slo_pass": 0.7819017857142857,
-    "slo_pass_worst": 0.5795625,
-    "slo_pass_overload": 0.65521875,
+    "slo_pass": 0.7872678571428572,
+    "slo_pass_worst": 0.572375,
+    "slo_pass_overload": 0.6637968750000001,
     "tenant_pass_worst": 0.0,
-    "p95_latency": 137.3111833844866,
-    "p99_latency": 189.93749373299735,
+    "p95_latency": 15.99996566772461,
+    "p99_latency": 53.89284488133022,
     "recall_slo": 1.0,
-    "goodput_qps": 4289.636616714065,
-    "served_frac": 0.8072946428571429,
+    "goodput_qps": 4312.99407926158,
+    "served_frac": 0.7911696428571429,
     "per_regime": {
      "rhos": [
       0.7,
@@ -694,16 +694,16 @@
      "slo_pass": [
       0.9624375,
       0.9624375,
-      0.9275625,
-      0.7323125,
-      0.65775,
-      0.65125,
-      0.5795625
+      0.9308125,
+      0.7658125,
+      0.677625,
+      0.639375,
+      0.572375
      ],
      "worst_tenant_pass": [
       0.6995,
       0.6995,
-      0.6975,
+      0.6955,
       0.0,
       0.0,
       0.0,
@@ -712,14 +712,14 @@
      "served_frac": [
       0.9624375,
       0.9624375,
-      0.9503125,
-      0.81575,
-      0.7293125,
-      0.65125,
-      0.5795625
+      0.9335625,
+      0.7881875,
+      0.6798125,
+      0.639375,
+      0.572375
      ]
     },
-    "u_target": 0.99,
+    "u_target": 0.97,
     "calibration": [
      {
       "u": 0.7,
@@ -733,42 +733,42 @@
      },
      {
       "u": 0.85,
-      "pilot_slo_pass": 0.7632589285714285,
+      "pilot_slo_pass": 0.7632678571428572,
       "pilot_worst": 0.52975
      },
      {
       "u": 0.9,
-      "pilot_slo_pass": 0.7705982142857143,
+      "pilot_slo_pass": 0.7771160714285715,
       "pilot_worst": 0.54725
      },
      {
       "u": 0.94,
-      "pilot_slo_pass": 0.7787053571428572,
+      "pilot_slo_pass": 0.7864732142857144,
       "pilot_worst": 0.561625
      },
      {
       "u": 0.95,
-      "pilot_slo_pass": 0.7808214285714286,
+      "pilot_slo_pass": 0.7888482142857143,
       "pilot_worst": 0.56525
      },
      {
       "u": 0.96,
-      "pilot_slo_pass": 0.7815982142857143,
+      "pilot_slo_pass": 0.7904732142857142,
       "pilot_worst": 0.5688125
      },
      {
       "u": 0.97,
-      "pilot_slo_pass": 0.7809732142857142,
+      "pilot_slo_pass": 0.7911607142857143,
       "pilot_worst": 0.572375
      },
      {
       "u": 0.98,
-      "pilot_slo_pass": 0.780125,
+      "pilot_slo_pass": 0.7873214285714285,
       "pilot_worst": 0.576
      },
      {
       "u": 0.99,
-      "pilot_slo_pass": 0.7825892857142857,
+      "pilot_slo_pass": 0.788767857142857,
       "pilot_worst": 0.5795625
      }
     ]
@@ -794,45 +794,45 @@
     },
     {
      "u": 0.9,
-     "slo_pass": 0.7734821428571428,
+     "slo_pass": 0.7770892857142856,
      "slo_pass_worst": 0.54725,
-     "slo_pass_overload": 0.642265625
+     "slo_pass_overload": 0.648578125
     },
     {
      "u": 0.94,
-     "slo_pass": 0.781607142857143,
+     "slo_pass": 0.7859196428571428,
      "slo_pass_worst": 0.561625,
-     "slo_pass_overload": 0.6573437500000001
+     "slo_pass_overload": 0.6631562500000001
     },
     {
      "u": 0.95,
-     "slo_pass": 0.7835357142857143,
+     "slo_pass": 0.7881607142857143,
      "slo_pass_worst": 0.56525,
-     "slo_pass_overload": 0.661078125
+     "slo_pass_overload": 0.666703125
     },
     {
      "u": 0.96,
-     "slo_pass": 0.7816071428571428,
+     "slo_pass": 0.780705357142857,
      "slo_pass_worst": 0.5688125,
-     "slo_pass_overload": 0.65703125
+     "slo_pass_overload": 0.653046875
     },
     {
      "u": 0.97,
-     "slo_pass": 0.7772142857142857,
+     "slo_pass": 0.7872678571428572,
      "slo_pass_worst": 0.572375,
-     "slo_pass_overload": 0.6485625
+     "slo_pass_overload": 0.6637968750000001
     },
     {
      "u": 0.98,
-     "slo_pass": 0.7793482142857141,
+     "slo_pass": 0.7883214285714285,
      "slo_pass_worst": 0.576,
-     "slo_pass_overload": 0.651515625
+     "slo_pass_overload": 0.664875
     },
     {
      "u": 0.99,
-     "slo_pass": 0.7819017857142857,
+     "slo_pass": 0.7869821428571429,
      "slo_pass_worst": 0.5795625,
-     "slo_pass_overload": 0.65521875
+     "slo_pass_overload": 0.66178125
     }
    ]
   },
@@ -1034,15 +1034,15 @@
     }
    },
    "planner": {
-    "slo_pass": 0.9376160714285714,
-    "slo_pass_worst": 0.82975,
-    "slo_pass_overload": 0.919,
+    "slo_pass": 0.9374821428571428,
+    "slo_pass_worst": 0.8288125,
+    "slo_pass_overload": 0.918765625,
     "tenant_pass_worst": 0.0,
-    "p95_latency": 4.840806450162615,
-    "p99_latency": 10.188626153128487,
+    "p95_latency": 4.767822299684797,
+    "p99_latency": 10.1887389591762,
     "recall_slo": 1.0,
-    "goodput_qps": 5512.855665720671,
-    "served_frac": 0.9376160714285714,
+    "goodput_qps": 5511.427160025435,
+    "served_frac": 0.9374821428571428,
     "per_regime": {
      "rhos": [
       0.7,
@@ -1060,7 +1060,7 @@
       0.9624375,
       0.9624375,
       0.921375,
-      0.82975
+      0.8288125
      ],
      "worst_tenant_pass": [
       0.6995,
@@ -1078,7 +1078,7 @@
       0.9624375,
       0.9624375,
       0.921375,
-      0.82975
+      0.8288125
      ]
     },
     "u_target": 0.99,
@@ -1105,33 +1105,33 @@
      },
      {
       "u": 0.94,
-      "pilot_slo_pass": 0.9304642857142857,
-      "pilot_worst": 0.8064375
+      "pilot_slo_pass": 0.9305803571428571,
+      "pilot_worst": 0.80725
      },
      {
       "u": 0.95,
-      "pilot_slo_pass": 0.9318482142857142,
-      "pilot_worst": 0.81075
+      "pilot_slo_pass": 0.9319642857142857,
+      "pilot_worst": 0.8115625
      },
      {
       "u": 0.96,
-      "pilot_slo_pass": 0.9332232142857142,
-      "pilot_worst": 0.8150625
+      "pilot_slo_pass": 0.9333392857142856,
+      "pilot_worst": 0.815875
      },
      {
       "u": 0.97,
-      "pilot_slo_pass": 0.9346071428571427,
-      "pilot_worst": 0.819375
+      "pilot_slo_pass": 0.9347232142857143,
+      "pilot_worst": 0.8201875
      },
      {
       "u": 0.98,
-      "pilot_slo_pass": 0.9359821428571429,
-      "pilot_worst": 0.8236875
+      "pilot_slo_pass": 0.9360982142857142,
+      "pilot_worst": 0.8245
      },
      {
       "u": 0.99,
-      "pilot_slo_pass": 0.9373660714285714,
-      "pilot_worst": 0.828
+      "pilot_slo_pass": 0.9374821428571428,
+      "pilot_worst": 0.8288125
      }
     ]
    },
@@ -1162,39 +1162,39 @@
     },
     {
      "u": 0.94,
-     "slo_pass": 0.9307142857142857,
-     "slo_pass_worst": 0.8081875,
-     "slo_pass_overload": 0.9069218749999999
+     "slo_pass": 0.9305803571428571,
+     "slo_pass_worst": 0.80725,
+     "slo_pass_overload": 0.9066874999999999
     },
     {
      "u": 0.95,
-     "slo_pass": 0.9320982142857143,
-     "slo_pass_worst": 0.8125,
-     "slo_pass_overload": 0.90934375
+     "slo_pass": 0.9319642857142857,
+     "slo_pass_worst": 0.8115625,
+     "slo_pass_overload": 0.909109375
     },
     {
      "u": 0.96,
-     "slo_pass": 0.9334732142857142,
-     "slo_pass_worst": 0.8168125,
-     "slo_pass_overload": 0.9117500000000001
+     "slo_pass": 0.9333392857142856,
+     "slo_pass_worst": 0.815875,
+     "slo_pass_overload": 0.911515625
     },
     {
      "u": 0.97,
-     "slo_pass": 0.9348571428571428,
-     "slo_pass_worst": 0.821125,
-     "slo_pass_overload": 0.914171875
+     "slo_pass": 0.9347232142857143,
+     "slo_pass_worst": 0.8201875,
+     "slo_pass_overload": 0.9139375
     },
     {
      "u": 0.98,
-     "slo_pass": 0.9362321428571428,
-     "slo_pass_worst": 0.8254375,
-     "slo_pass_overload": 0.916578125
+     "slo_pass": 0.9360982142857142,
+     "slo_pass_worst": 0.8245,
+     "slo_pass_overload": 0.91634375
     },
     {
      "u": 0.99,
-     "slo_pass": 0.9376160714285714,
-     "slo_pass_worst": 0.82975,
-     "slo_pass_overload": 0.919
+     "slo_pass": 0.9374821428571428,
+     "slo_pass_worst": 0.8288125,
+     "slo_pass_overload": 0.918765625
     }
    ]
   }
