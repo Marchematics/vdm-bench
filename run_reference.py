@@ -111,7 +111,9 @@ def main():
             analytics.append(("ana-vec-sampling", lambda w: ref.analytics_anavec(
                 a.data_root, w, dataset=a.dataset, n_probe_lists=0, sample_n=12000)))
         for name, fn in analytics:
+            print(f"[analytics] {name}: building submission ...", flush=True)
             pred = fn(wa)
+            print(f"[analytics] {name}: scoring ...", flush=True)
             m = core.eval_analytics(pred, wa, a.data_root, dataset=a.dataset)
             rows.append({"task": "analytics", "submission": name, **m})
             os.makedirs(os.path.join("submissions", name), exist_ok=True)
