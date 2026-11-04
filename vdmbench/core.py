@@ -960,4 +960,5 @@ def eval_serving(pred, wl):
             "served_frac": float(np.mean(served)),
             "_rhos": rhos,
             "_per_regime_slo_pass": [float(x) for x in passes],
-            "_per_regime_tenant_pass": per_tenant}
+            "_per_regime_tenant_pass": per_tenant,
+            "_per_regime_served_frac": [float(x) for x in served]}

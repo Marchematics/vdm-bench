@@ -16,101 +16,519 @@
    "drift_tol_thr_units": 2.0
   },
   "pilot_points": 256,
-  "z": 2.0
+  "z": 2.0,
+  "seed": 0,
+  "seeds": 3,
+  "seed_values": [
+   0,
+   1,
+   2
+  ],
+  "seed_spread_note": "mean/sd over seeds in each plan's 'seed_spread'; the plan detail (instances, plan_selection) is seed 0's"
  },
  "plans": {
   "quality-naive": {
-   "dup_abs_err_mean": 0.021670409081724497,
+   "dup_abs_err_mean": 0.0216704090817245,
    "outlier_abs_err_mean": 93.2,
    "drift_err_thr_units": 8.14686276780729,
    "detect_acc": 0.25,
+   "contract_rate": 0.0,
+   "contract_met_count": 0.0,
    "cost": 0.0,
+   "_contract": {
+    "integrity_recall": 1.0,
+    "outlier_rel_tol": 0.25,
+    "drift_tol_thr_units": 2.0
+   },
+   "_contract_met": [
+    false,
+    false,
+    false,
+    false,
+    false
+   ],
+   "_contract_failures": [
+    {
+     "instance": 0,
+     "family": "clean",
+     "level": "-",
+     "clause": "integrity_recall",
+     "op": ">=",
+     "value": 0.0,
+     "limit": 1.0,
+     "margin": 1.0
+    },
+    {
+     "instance": 1,
+     "family": "dup",
+     "level": "5%",
+     "clause": "integrity_recall",
+     "op": ">=",
+     "value": 0.0,
+     "limit": 1.0,
+     "margin": 1.0
+    },
+    {
+     "instance": 2,
+     "family": "outlier",
+     "level": "1%",
+     "clause": "integrity_recall",
+     "op": ">=",
+     "value": 0.0,
+     "limit": 1.0,
+     "margin": 1.0
+    },
+    {
+     "instance": 2,
+     "family": "outlier",
+     "level": "1%",
+     "clause": "outlier_rel_tol",
+     "op": "<=",
+     "value": 1.0,
+     "limit": 0.25,
+     "margin": 0.75
+    },
+    {
+     "instance": 3,
+     "family": "drift",
+     "level": "20%",
+     "clause": "integrity_recall",
+     "op": ">=",
+     "value": 0.0,
+     "limit": 1.0,
+     "margin": 1.0
+    },
+    {
+     "instance": 3,
+     "family": "drift",
+     "level": "20%",
+     "clause": "drift_tol_thr_units",
+     "op": "<=",
+     "value": 37.60429952611194,
+     "limit": 2.0,
+     "margin": 35.60429952611194
+    },
+    {
+     "instance": 4,
+     "family": "hole",
+     "level": "1%",
+     "clause": "integrity_recall",
+     "op": ">=",
+     "value": 0.0,
+     "limit": 1.0,
+     "margin": 1.0
+    }
+   ],
    "integrity_recall": 0.0,
-   "integrity_violations": 5
+   "integrity_violations": 5,
+   "seed_spread": {
+    "contract_rate": {
+     "mean": 0.0,
+     "sd": 0.0
+    },
+    "contract_met_count": {
+     "mean": 0.0,
+     "sd": 0.0
+    },
+    "drift_err_thr_units": {
+     "mean": 8.14686276780729,
+     "sd": 0.0
+    },
+    "outlier_abs_err_mean": {
+     "mean": 93.2,
+     "sd": 0.0
+    },
+    "dup_abs_err_mean": {
+     "mean": 0.0216704090817245,
+     "sd": 4.2491873609703695e-18
+    },
+    "detect_acc": {
+     "mean": 0.25,
+     "sd": 0.0
+    },
+    "cost": {
+     "mean": 0.0,
+     "sd": 0.0
+    },
+    "integrity_recall": {
+     "mean": 0.0,
+     "sd": 0.0
+    }
+   },
+   "cost_seed0": 0.0
   },
   "quality-exact": {
    "dup_abs_err_mean": 0.0,
    "outlier_abs_err_mean": 0.0,
    "drift_err_thr_units": 0.0,
    "detect_acc": 1.0,
+   "contract_rate": 1.0,
+   "contract_met_count": 5.0,
    "cost": 1000000000000.0,
+   "_contract": {
+    "integrity_recall": 1.0,
+    "outlier_rel_tol": 0.25,
+    "drift_tol_thr_units": 2.0
+   },
+   "_contract_met": [
+    true,
+    true,
+    true,
+    true,
+    true
+   ],
+   "_contract_failures": [],
    "integrity_recall": 1.0,
-   "integrity_violations": 0
+   "integrity_violations": 0,
+   "seed_spread": {
+    "contract_rate": {
+     "mean": 1.0,
+     "sd": 0.0
+    },
+    "contract_met_count": {
+     "mean": 5.0,
+     "sd": 0.0
+    },
+    "drift_err_thr_units": {
+     "mean": 0.0,
+     "sd": 0.0
+    },
+    "outlier_abs_err_mean": {
+     "mean": 0.0,
+     "sd": 0.0
+    },
+    "dup_abs_err_mean": {
+     "mean": 0.0,
+     "sd": 0.0
+    },
+    "detect_acc": {
+     "mean": 1.0,
+     "sd": 0.0
+    },
+    "cost": {
+     "mean": 1000000000000.0,
+     "sd": 0.0
+    },
+    "integrity_recall": {
+     "mean": 1.0,
+     "sd": 0.0
+    }
+   },
+   "cost_seed0": 1000000000000.0
   },
   "vecprof-ref": {
    "dup_abs_err_mean": 4.263229043993079e-05,
    "outlier_abs_err_mean": 9.2,
-   "drift_err_thr_units": 0.9880750487964092,
+   "drift_err_thr_units": 0.001831156689381043,
    "detect_acc": 1.0,
-   "cost": 3635200495.0,
+   "contract_rate": 1.0,
+   "contract_met_count": 5.0,
+   "cost": 3861901071.3333335,
+   "_contract": {
+    "integrity_recall": 1.0,
+    "outlier_rel_tol": 0.25,
+    "drift_tol_thr_units": 2.0
+   },
+   "_contract_met": [
+    true,
+    true,
+    true,
+    true,
+    true
+   ],
+   "_contract_failures": [],
    "instances": [
     {
      "family": "clean",
      "level": "-",
      "dup_rate": 0.0029047619047619048,
      "n_outliers": 0,
-     "drift": -2.7479459975812795e-05
+     "drift": -2.150284275170833e-05,
+     "drift_ci": 0.0,
+     "drift_ci_thr_units": 0.0,
+     "drift_tol_thr_units": 2.0,
+     "sample_n": 4000,
+     "subsample_n": 4000,
+     "m": null,
+     "drift_cost": 49082720.0,
+     "cost": 608427326.0
     },
     {
      "family": "dup",
      "level": "5%",
      "dup_rate": 0.09775510204081633,
      "n_outliers": 0,
-     "drift": -8.730747587856309e-05
+     "drift": -7.272896715404542e-05,
+     "drift_ci": 0.0,
+     "drift_ci_thr_units": 0.0,
+     "drift_tol_thr_units": 2.0,
+     "sample_n": 4000,
+     "subsample_n": 4000,
+     "m": null,
+     "drift_cost": 49082720.0,
+     "cost": 663055706.0
     },
     {
      "family": "outlier",
      "level": "1%",
      "dup_rate": 0.002876001885902876,
      "n_outliers": 420,
-     "drift": -4.298179590469541e-05
+     "drift": 4.943196531947969e-05,
+     "drift_ci": 0.0,
+     "drift_ci_thr_units": 0.0,
+     "drift_tol_thr_units": 2.0,
+     "sample_n": 4000,
+     "subsample_n": 4000,
+     "m": null,
+     "drift_cost": 49082720.0,
+     "cost": 1412382859.0
     },
     {
      "family": "drift",
      "level": "20%",
      "dup_rate": 0.0020952380952380953,
      "n_outliers": 0,
-     "drift": 0.002572952089434544
+     "drift": 0.0026593178140725815,
+     "drift_ci": 0.0,
+     "drift_ci_thr_units": 0.0,
+     "drift_tol_thr_units": 2.0,
+     "sample_n": 4000,
+     "subsample_n": 4000,
+     "m": null,
+     "drift_cost": 49082720.0,
+     "cost": 599870762.0
     },
     {
      "family": "hole",
      "level": "1%",
      "dup_rate": 0.002934102934102934,
      "n_outliers": 0,
-     "drift": -7.226830423833993e-05
+     "drift": 7.730613073175796e-05,
+     "drift_ci": 0.0,
+     "drift_ci_thr_units": 0.0,
+     "drift_tol_thr_units": 2.0,
+     "sample_n": 4000,
+     "subsample_n": 4000,
+     "m": null,
+     "drift_cost": 49082720.0,
+     "cost": 589709442.0
     }
    ],
-   "cost_all_passes": 3689498095.0,
+   "cost_all_passes": 3916198671.3333335,
    "integrity_recall": 1.0,
-   "integrity_violations": 0
+   "integrity_violations": 0,
+   "seed_spread": {
+    "contract_rate": {
+     "mean": 1.0,
+     "sd": 0.0
+    },
+    "contract_met_count": {
+     "mean": 5.0,
+     "sd": 0.0
+    },
+    "drift_err_thr_units": {
+     "mean": 0.001831156689381043,
+     "sd": 2.655742100606481e-19
+    },
+    "outlier_abs_err_mean": {
+     "mean": 9.2,
+     "sd": 0.0
+    },
+    "dup_abs_err_mean": {
+     "mean": 4.263229043993079e-05,
+     "sd": 0.0
+    },
+    "detect_acc": {
+     "mean": 1.0,
+     "sd": 0.0
+    },
+    "cost": {
+     "mean": 3861901071.3333335,
+     "sd": 14910940.423258431
+    },
+    "cost_all_passes": {
+     "mean": 3916198671.3333335,
+     "sd": 14910940.423258431
+    },
+    "integrity_recall": {
+     "mean": 1.0,
+     "sd": 0.0
+    }
+   },
+   "cost_seed0": 3873446095.0
   },
   "heuristic-nprobe=8": {
    "dup_abs_err_mean": 0.0,
    "outlier_abs_err_mean": 9.2,
-   "drift_err_thr_units": 0.9880750487964092,
+   "drift_err_thr_units": 2.444717715543964,
    "detect_acc": 1.0,
+   "contract_rate": 0.7333333333333334,
+   "contract_met_count": 3.6666666666666665,
    "cost": 678335875.0,
+   "_contract": {
+    "integrity_recall": 1.0,
+    "outlier_rel_tol": 0.25,
+    "drift_tol_thr_units": 2.0
+   },
+   "_contract_met": [
+    true,
+    true,
+    true,
+    true,
+    false
+   ],
+   "_contract_failures": [
+    {
+     "instance": 4,
+     "family": "hole",
+     "level": "1%",
+     "clause": "drift_tol_thr_units",
+     "op": "<=",
+     "value": 2.1190985327788754,
+     "limit": 2.0,
+     "margin": 0.11909853277887539
+    }
+   ],
    "cost_all_passes": 678335875.0,
-   "integrity_recall": 0.9855720869325031,
-   "integrity_violations": 5
+   "integrity_recall": 0.985572086932503,
+   "integrity_violations": 5,
+   "seed_spread": {
+    "contract_rate": {
+     "mean": 0.7333333333333334,
+     "sd": 0.11547005383792519
+    },
+    "contract_met_count": {
+     "mean": 3.6666666666666665,
+     "sd": 0.5773502691896258
+    },
+    "drift_err_thr_units": {
+     "mean": 2.444717715543964,
+     "sd": 1.9417376787122318
+    },
+    "outlier_abs_err_mean": {
+     "mean": 9.2,
+     "sd": 0.0
+    },
+    "dup_abs_err_mean": {
+     "mean": 0.0,
+     "sd": 0.0
+    },
+    "detect_acc": {
+     "mean": 1.0,
+     "sd": 0.0
+    },
+    "cost": {
+     "mean": 678335875.0,
+     "sd": 0.0
+    },
+    "cost_all_passes": {
+     "mean": 678335875.0,
+     "sd": 0.0
+    },
+    "integrity_recall": {
+     "mean": 0.985572086932503,
+     "sd": 1.3597399555105182e-16
+    }
+   },
+   "cost_seed0": 678335875.0
   },
   "heuristic-nprobe=32": {
    "dup_abs_err_mean": 0.0,
    "outlier_abs_err_mean": 9.2,
-   "drift_err_thr_units": 0.9880750487964092,
+   "drift_err_thr_units": 2.444717715543964,
    "detect_acc": 1.0,
+   "contract_rate": 0.7333333333333334,
+   "contract_met_count": 3.6666666666666665,
    "cost": 2366053900.0,
+   "_contract": {
+    "integrity_recall": 1.0,
+    "outlier_rel_tol": 0.25,
+    "drift_tol_thr_units": 2.0
+   },
+   "_contract_met": [
+    true,
+    true,
+    true,
+    true,
+    false
+   ],
+   "_contract_failures": [
+    {
+     "instance": 4,
+     "family": "hole",
+     "level": "1%",
+     "clause": "drift_tol_thr_units",
+     "op": "<=",
+     "value": 2.1190985327788754,
+     "limit": 2.0,
+     "margin": 0.11909853277887539
+    }
+   ],
    "cost_all_passes": 2366053900.0,
-   "integrity_recall": 0.9855720869325031,
-   "integrity_violations": 5
+   "integrity_recall": 0.985572086932503,
+   "integrity_violations": 5,
+   "seed_spread": {
+    "contract_rate": {
+     "mean": 0.7333333333333334,
+     "sd": 0.11547005383792519
+    },
+    "contract_met_count": {
+     "mean": 3.6666666666666665,
+     "sd": 0.5773502691896258
+    },
+    "drift_err_thr_units": {
+     "mean": 2.444717715543964,
+     "sd": 1.9417376787122318
+    },
+    "outlier_abs_err_mean": {
+     "mean": 9.2,
+     "sd": 0.0
+    },
+    "dup_abs_err_mean": {
+     "mean": 0.0,
+     "sd": 0.0
+    },
+    "detect_acc": {
+     "mean": 1.0,
+     "sd": 0.0
+    },
+    "cost": {
+     "mean": 2366053900.0,
+     "sd": 0.0
+    },
+    "cost_all_passes": {
+     "mean": 2366053900.0,
+     "sd": 0.0
+    },
+    "integrity_recall": {
+     "mean": 0.985572086932503,
+     "sd": 1.3597399555105182e-16
+    }
+   },
+   "cost_seed0": 2366053900.0
   },
   "planner@contract_min": {
    "dup_abs_err_mean": 4.263229043993079e-05,
-   "outlier_abs_err_mean": 2.0,
-   "drift_err_thr_units": 0.9552317314547631,
+   "outlier_abs_err_mean": 11.266666666666666,
+   "drift_err_thr_units": 2.031305790192475,
    "detect_acc": 1.0,
-   "cost": 1004779215.0,
-   "cost_all_passes": 1004779215.0,
+   "contract_rate": 0.9333333333333332,
+   "contract_met_count": 4.666666666666667,
+   "cost": 1004721042.6666666,
+   "_contract": {
+    "integrity_recall": 1.0,
+    "outlier_rel_tol": 0.25,
+    "drift_tol_thr_units": 2.0
+   },
+   "_contract_met": [
+    true,
+    true,
+    true,
+    true,
+    true
+   ],
+   "_contract_failures": [],
+   "cost_all_passes": 1004721042.6666666,
    "integrity_recall": 1.0,
    "integrity_violations": 0,
    "cost_breakdown": {
@@ -129,7 +547,7 @@
     "outlier": {
      "nlist": 2048,
      "cert_evals": 190395712.0,
-     "knn_evals": 44468000.0,
+     "knn_evals": 30004783.0,
      "rff_evals": 1024000.0
     },
     "drift": {
@@ -164,7 +582,7 @@
      "family": "outlier",
      "level": "1%",
      "dup_rate": 0.002876001885902876,
-     "n_outliers": 456,
+     "n_outliers": 440,
      "drift": -2.7279599901988336e-05
     },
     {
@@ -181,15 +599,69 @@
      "n_outliers": 0,
      "drift": -1.1324525767026923e-06
     }
-   ]
+   ],
+   "seed_spread": {
+    "contract_rate": {
+     "mean": 0.9333333333333332,
+     "sd": 0.11547005383792514
+    },
+    "contract_met_count": {
+     "mean": 4.666666666666667,
+     "sd": 0.5773502691896258
+    },
+    "drift_err_thr_units": {
+     "mean": 2.031305790192475,
+     "sd": 1.5212119750338648
+    },
+    "outlier_abs_err_mean": {
+     "mean": 11.266666666666666,
+     "sd": 8.5143016938169
+    },
+    "dup_abs_err_mean": {
+     "mean": 4.263229043993079e-05,
+     "sd": 0.0
+    },
+    "detect_acc": {
+     "mean": 1.0,
+     "sd": 0.0
+    },
+    "cost": {
+     "mean": 1004721042.6666666,
+     "sd": 15336526.6488814
+    },
+    "cost_all_passes": {
+     "mean": 1004721042.6666666,
+     "sd": 15336526.6488814
+    },
+    "integrity_recall": {
+     "mean": 1.0,
+     "sd": 0.0
+    }
+   },
+   "cost_seed0": 995954142.0
   },
   "planner@matched_vecprof": {
    "dup_abs_err_mean": 4.263229043993079e-05,
    "outlier_abs_err_mean": 9.2,
-   "drift_err_thr_units": 0.9552317314547631,
+   "drift_err_thr_units": 2.031305790192475,
    "detect_acc": 1.0,
-   "cost": 1961882165.0,
-   "cost_all_passes": 1961882165.0,
+   "contract_rate": 0.9333333333333332,
+   "contract_met_count": 4.666666666666667,
+   "cost": 1971466137.3333333,
+   "_contract": {
+    "integrity_recall": 1.0,
+    "outlier_rel_tol": 0.25,
+    "drift_tol_thr_units": 2.0
+   },
+   "_contract_met": [
+    true,
+    true,
+    true,
+    true,
+    true
+   ],
+   "_contract_failures": [],
+   "cost_all_passes": 1971466137.3333333,
    "integrity_recall": 1.0,
    "integrity_violations": 0,
    "cost_breakdown": {
@@ -260,7 +732,46 @@
      "n_outliers": 0,
      "drift": -1.1324525767026923e-06
     }
-   ]
+   ],
+   "seed_spread": {
+    "contract_rate": {
+     "mean": 0.9333333333333332,
+     "sd": 0.11547005383792514
+    },
+    "contract_met_count": {
+     "mean": 4.666666666666667,
+     "sd": 0.5773502691896258
+    },
+    "drift_err_thr_units": {
+     "mean": 2.031305790192475,
+     "sd": 1.5212119750338648
+    },
+    "outlier_abs_err_mean": {
+     "mean": 9.2,
+     "sd": 0.0
+    },
+    "dup_abs_err_mean": {
+     "mean": 4.263229043993079e-05,
+     "sd": 0.0
+    },
+    "detect_acc": {
+     "mean": 1.0,
+     "sd": 0.0
+    },
+    "cost": {
+     "mean": 1971466137.3333333,
+     "sd": 6986482.785232806
+    },
+    "cost_all_passes": {
+     "mean": 1971466137.3333333,
+     "sd": 6986482.785232806
+    },
+    "integrity_recall": {
+     "mean": 1.0,
+     "sd": 0.0
+    }
+   },
+   "cost_seed0": 1967520309.0
   }
  },
  "plan_selection": {
@@ -497,12 +1008,49 @@
    }
   ],
   "outlier_sample": {
-   "pilot_rate": 0.001,
-   "pilot_points": 256,
-   "pilot_cost": 1476736.0,
-   "chosen_S": 8000,
-   "formula": "S = z^2 (1-p) / (tol^2 p), z=2, tol=0.25",
-   "predicted_sd_over_rate": 0.3533765696816924
+   "per_instance": [
+    {
+     "family": "clean",
+     "pilot_points": 256,
+     "pilot_rate": 0.001,
+     "pilot_cost": 1409536.0,
+     "chosen_S": 8000,
+     "predicted_sd_over_rate": 0.3533765696816924
+    },
+    {
+     "family": "dup",
+     "pilot_points": 256,
+     "pilot_rate": 0.001,
+     "pilot_cost": 1476736.0,
+     "chosen_S": 8000,
+     "predicted_sd_over_rate": 0.3533765696816924
+    },
+    {
+     "family": "outlier",
+     "pilot_points": 256,
+     "pilot_rate": 0.01171875,
+     "pilot_cost": 1422976.0,
+     "chosen_S": 5398,
+     "predicted_sd_over_rate": 0.12499228085342148
+    },
+    {
+     "family": "drift",
+     "pilot_points": 256,
+     "pilot_rate": 0.001,
+     "pilot_cost": 1409536.0,
+     "chosen_S": 8000,
+     "predicted_sd_over_rate": 0.3533765696816924
+    },
+    {
+     "family": "hole",
+     "pilot_points": 256,
+     "pilot_rate": 0.001,
+     "pilot_cost": 1396096.0,
+     "chosen_S": 8000,
+     "predicted_sd_over_rate": 0.3533765696816924
+    }
+   ],
+   "formula": "S = z^2 (1-p) / (tol^2 p), z=2, tol=0.25"
   }
  }
 }

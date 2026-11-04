@@ -39,13 +39,34 @@ def readout_quality(path):
         print(f"| {name} | {p['dup_abs_err_mean']:.3e} | {p['outlier_abs_err_mean']:.1f} | "
               f"{p['drift_err_thr_units']:.3f} | {p['detect_acc']:.2f} | {cov} | "
               f"{p['cost']:.3e} | {num/ref_cost:.3f} |")
+    # ---- contract table with per-seed spread (new) --------------------------
+    seeds = q["setup"].get("seeds", 1)
+    print(f"\ncontract compliance, mean ± sd over {seeds} seed(s) "
+          f"(from each plan's 'seed_spread'):")
+    print("| plan | contract rate | drift err (thr units) | cost |")
+    print("|---|---|---|---|")
+    for name in PLANS_QUALITY:
+        p = plans[name]
+        sp = p.get("seed_spread", {})
+
+        def ms(key, fmt):
+            if key in sp:
+                return f"{sp[key]['mean']:.{fmt}f} ± {sp[key]['sd']:.{fmt}f}"
+            return f"{p.get(key, float('nan')):.{fmt}f}"
+
+        print(f"| {name} | {ms('contract_rate', 3)} | {ms('drift_err_thr_units', 4)} | "
+              f"{ms('cost', 3)} |")
+
     print("\ncost breakdown (pilot + certified + knn + rff) vs recorded cost:")
-    pilot = q["plan_selection"]["outlier_sample"]["pilot_cost"]
+    os_ = q["plan_selection"]["outlier_sample"]
+    pilot = os_.get("pilot_cost")
+    if pilot is None:      # newer schema: per-instance pilot records
+        pilot = sum(p["pilot_cost"] for p in os_.get("per_instance", []))
     for name in ["planner@contract_min", "planner@matched_vecprof"]:
         cb = plans[name]["cost_breakdown"]
         s = pilot + sum(v["cert_evals"] + v["knn_evals"] + v["rff_evals"] for v in cb.values())
-        print(f"  {name}: sum={s:.0f} recorded={plans[name]['cost']:.0f} "
-              f"match={s == plans[name]['cost']}")
+        rec = plans[name].get("cost_seed0", plans[name]["cost"])
+        print(f"  {name}: sum={s:.0f} seed0_recorded={rec:.0f} match={s == rec}")
     print("\nplanner cost-model selection (predicted == measured certified evals):")
     for row in q["plan_selection"]["certified_cost_model"]:
         fam, nl = row["family"], row["chosen_nlist"]
@@ -85,6 +106,35 @@ def readout_serving(path):
                   f"{v['slo_pass_overload']:.4f} | {v['tenant_pass_worst']:.4f} | "
                   f"{v['p95_latency']:.1f} | {v['p99_latency']:.1f} | "
                   f"{v['goodput_qps']:.0f} | {v['served_frac']:.4f} |")
+    # ---- per-regime vector (7 regimes), the aggregate's blind spot ----------
+    caps = [str(c) for c in st["capacities"]]
+    for cap in caps:
+        cd = s["capacities"][cap]
+        names = [n for n in PLANS_SERVING if n in cd]
+        print(f"\nper-regime slo_pass at cores={cap} (rhos = {st['rhos']}):")
+        print("| policy | " + " | ".join(f"rho={r:g}" for r in st["rhos"]) + " |")
+        print("|---" * (len(st["rhos"]) + 1) + "|")
+        for name in names:
+            pr = cd[name].get("per_regime")
+            if not pr:
+                print(f"| {name} | per-regime not recorded |")
+                continue
+            print(f"| {name} | " + " | ".join(f"{v:.3f}" for v in pr["slo_pass"]) + " |")
+        print(f"\nper-regime worst-tenant pass / served fraction at cores={cap} "
+              f"(planner vs the best fixed plan by mean):")
+        fixed = [n for n in names if n.startswith("serving-")]
+        best = max(fixed, key=lambda n: (cd[n]["slo_pass"], cd[n]["slo_pass_worst"]))
+        print("| policy | " + " | ".join(f"rho={r:g}" for r in st["rhos"]) + " |")
+        print("|---" * (len(st["rhos"]) + 1) + "|")
+        for name in (best, "planner"):
+            pr = cd[name].get("per_regime")
+            if not pr or "worst_tenant_pass" not in pr:
+                print(f"| {name} | per-regime not recorded |")
+                continue
+            cells = [f"{w:.3f} / {sf:.3f}" for w, sf in
+                     zip(pr["worst_tenant_pass"], pr.get("served_frac", []))]
+            print(f"| {name} | " + " | ".join(cells) + " |")
+
     print("\nplanner vs best fixed plan that was actually run, and the calibrated u:")
     for cap in [str(c) for c in st["capacities"]]:
         cd = s["capacities"][cap]

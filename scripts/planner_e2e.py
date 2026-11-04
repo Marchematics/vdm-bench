@@ -342,8 +342,28 @@ def main_analytics(args):
 # serving
 # --------------------------------------------------------------------------- #
 def _serving_row(m):
-    return {k: (float(v) if isinstance(v, (int, float, np.floating)) else v)
-            for k, v in m.items() if not str(k).startswith("_")}
+    """Aggregate metrics plus the per-regime vector the aggregate hides.
+
+    ``core.eval_serving`` returns the per-regime pass vector, the per-regime per-tenant pass
+    vector and the per-regime served fraction.  This used to strip the ``_``-prefixed keys, so a
+    policy that wins the overload regimes but loses the low-load ones (or vice versa) could only
+    be seen through its mean.  Keep them here -- per regime: slo_pass, worst-tenant pass and
+    served fraction -- so the per-regime claim is checkable straight from the JSON.
+    """
+    row = {k: (float(v) if isinstance(v, (int, float, np.floating)) else v)
+           for k, v in m.items() if not str(k).startswith("_")}
+    per_pass = m.get("_per_regime_slo_pass")
+    per_tenant = m.get("_per_regime_tenant_pass")
+    per_served = m.get("_per_regime_served_frac")
+    if per_pass is not None:
+        pr = {"rhos": [float(x) for x in (m.get("_rhos") or [])],
+              "slo_pass": [float(x) for x in per_pass]}
+        if per_tenant is not None:
+            pr["worst_tenant_pass"] = [float(min(pt)) for pt in per_tenant]
+        if per_served is not None:
+            pr["served_frac"] = [float(x) for x in per_served]
+        row["per_regime"] = pr
+    return row
 
 
 def main_serving(args):
@@ -478,7 +498,10 @@ def _rff_mmd_debiased(X_sample, refall, gamma, m, sn, seed=0, n_bias=12):
     return float(_ref._mmd2_from_features(Z, Zref[:sn]) - bias), float(c_i), float(c_ref), bias
 
 
-def main_quality(args):
+def _quality_once(args, seed=0):
+    """One quality run. The workload (and its ground truth) is fixed; ``seed`` varies only the
+    plans' sampling: certified cell structure, outlier pilot/sample, RFF sketch and the
+    reference submission seed."""
     t0 = time.time()
     wl = json.load(open(os.path.join(args.workloads, "sift", "quality.json")))
     rules = wl["rules"]
@@ -497,7 +520,7 @@ def main_quality(args):
         "eps": eps, "k_nn": k_nn, "outlier_thr": thr, "gamma": gamma,
         "sample_n": sn, "ref_n": rn, "dataset_n": dn, "drift_threshold": drift_thr,
         "contract": contract.to_json(),
-        "pilot_points": int(args.quality_pilot), "z": ZTOL},
+        "pilot_points": int(args.quality_pilot), "z": ZTOL, "seed": int(seed)},
         "plans": {}, "plan_selection": {}}
 
     X_all, _ = core.load_sift(args.data_root, dn)
@@ -515,7 +538,7 @@ def main_quality(args):
     # (a harness bug here would silently corrupt every recall number below).
     exact_verts = []
     for (fam, level, Xi) in sets:
-        rate, pair_evals, verts = planner._certified_dup_rate_costed(Xi, eps, nlist=1024, seed=0)
+        rate, pair_evals, verts = planner._certified_dup_rate_costed(Xi, eps, nlist=1024, seed=seed)
         exact_verts.append(verts)
         log(f"  certified(nlist=1024) {fam:8s}: dup_rate={rate:.6f} "
             f"pair_evals={pair_evals:.3e}", t0)
@@ -549,14 +572,14 @@ def main_quality(args):
     structs = []
     for (fam, level, Xi) in sets:
         t1 = time.time()
-        structs.append(_build_ivf(Xi, nlist=256, seed=0))
+        structs.append(_build_ivf(Xi, nlist=256, seed=seed))
         log(f"  IVF(nlist=256) built for {fam} ({time.time() - t1:.1f}s)", t0)
 
     # ---- the reference certified submission -----------------------------------
     vecprof_cost = None
     if args.quality_ref:
         log("  running reference vecprof submission ...", t0)
-        pred = ref.quality_vecprof(args.data_root, wl, seed=0)
+        pred = ref.quality_vecprof(args.data_root, wl, seed=seed)
         m = core.eval_quality(pred, wl)
         elig = float(sum(len(Xi) * 256 for (_, _, Xi) in sets))
         out["plans"]["vecprof-ref"] = {
@@ -575,8 +598,8 @@ def main_quality(args):
             recalls.append(float((hv & verts).sum() / max(1, verts.sum())))
             Dk, c_knn = _ivf_knn(struct, Xi, k_nn, nprobe)
             n_out = int((Dk > thr).sum())
-            ss = np.random.RandomState(1).choice(len(Xi), sn, replace=False)
-            drift, c_i, c_ref, _ = _rff_mmd_debiased(Xi[ss], refall, gamma, 256, sn, seed=0)
+            ss = np.random.RandomState(seed + 1).choice(len(Xi), sn, replace=False)
+            drift, c_i, c_ref, _ = _rff_mmd_debiased(Xi[ss], refall, gamma, 256, sn, seed=seed)
             insts.append({"family": fam, "level": level, "dup_rate": rate,
                           "n_outliers": n_out, "drift": drift})
             tot += c_dup + c_knn + c_i + (c_ref if fam == "clean" else 0.0)
@@ -593,7 +616,7 @@ def main_quality(args):
     nlists = [int(x) for x in args.quality_nlists.split(",")]
     sel = []
     for (fam, level, Xi) in sets:
-        rows = planner.certified_cost_model(Xi, eps, nlists=nlists, seed=0)
+        rows = planner.certified_cost_model(Xi, eps, nlists=nlists, seed=seed)
         best = min(rows, key=lambda r: r["predicted_evals"])
         sel.append({"family": fam, "candidates": rows, "chosen_nlist": int(best["nlist"])})
         log(f"  certified cost model {fam:8s}: chosen nlist={best['nlist']} "
@@ -609,7 +632,7 @@ def main_quality(args):
     # make the sample-size formula meaningless).
     pilot_info = []
     for struct, (fam, level, Xi) in zip(structs, sets):
-        pilot_idx = np.random.RandomState(5).choice(len(Xi), int(args.quality_pilot),
+        pilot_idx = np.random.RandomState(seed + 5).choice(len(Xi), int(args.quality_pilot),
                                                     replace=False)
         Dk, c_pilot = _ivf_knn(struct, Xi[pilot_idx], k_nn, 32)
         p_hat = max(float((Dk > thr).mean()), 1e-3)
@@ -629,7 +652,7 @@ def main_quality(args):
 
     def certified_once(Xi, nlist_choice):
         rate, pair_evals, verts = planner._certified_dup_rate_costed(
-            Xi, eps, nlist=nlist_choice, seed=0)
+            Xi, eps, nlist=nlist_choice, seed=seed)
         return rate, pair_evals, verts
 
     for label, budget, knn_mode, m_feat in [
@@ -651,12 +674,12 @@ def main_quality(args):
                 n_out = int((Dk > thr).sum())
             else:
                 S_i = pilot_info[idx]["chosen_S"]
-                ss = np.random.RandomState(2).choice(n, S_i, replace=False)
+                ss = np.random.RandomState(seed + 2).choice(n, S_i, replace=False)
                 Dk, c_knn = _ivf_knn(struct, Xi[ss], k_nn, args.quality_knn_nprobe)
                 n_out = int(round(float((Dk > thr).mean()) * n))
             # drift rule
-            ss = np.random.RandomState(3).choice(n, sn, replace=False)
-            drift, c_i, c_ref, _ = _rff_mmd_debiased(Xi[ss], refall, gamma, m_feat, sn, seed=0)
+            ss = np.random.RandomState(seed + 3).choice(n, sn, replace=False)
+            drift, c_i, c_ref, _ = _rff_mmd_debiased(Xi[ss], refall, gamma, m_feat, sn, seed=seed)
             c_ref = c_ref if idx == 0 else 0.0
             insts.append({"family": fam, "level": level, "dup_rate": rate,
                           "n_outliers": n_out, "drift": drift})
@@ -672,13 +695,56 @@ def main_quality(args):
         log(f"  {label}: {m} integrity_recall={np.mean(recalls):.4f} cost={tot:.3e}"
             + (f" ({tot / vecprof_cost:.2f}x vecprof)" if vecprof_cost else ""), t0)
 
+    return out
+
+
+
+
+def _merge_quality_outputs(outs):
+    """Aggregate per-seed quality runs: keep seed 0's detail, add mean/sd for every plan.
+
+    The workload and its ground truth are fixed, so the spread is the *plans'* seed noise
+    (certified cell structure, outlier pilot/sample, RFF sketch, reference submission seed).
+    """
+    out = json.loads(json.dumps(outs[0]))
+    out["setup"]["seeds"] = len(outs)
+    out["setup"]["seed_values"] = list(range(len(outs)))
+    out["setup"]["seed_spread_note"] = (
+        "mean/sd over seeds in each plan's 'seed_spread'; the plan detail (instances, "
+        "plan_selection) is seed 0's")
+    spread_keys = ("contract_rate", "contract_met_count", "drift_err_thr_units",
+                   "outlier_abs_err_mean", "dup_abs_err_mean", "detect_acc", "cost",
+                   "cost_all_passes", "integrity_recall")
+    for label, plan in out["plans"].items():
+        rows = [o["plans"][label] for o in outs]
+        spread = {}
+        for key in spread_keys:
+            vals = [p.get(key) for p in rows]
+            if vals and all(isinstance(v, (int, float)) and not isinstance(v, bool)
+                            for v in vals):
+                spread[key] = mean_sd([float(v) for v in vals])
+                plan[key] = spread[key]["mean"]
+        plan["seed_spread"] = spread
+        # the plan detail (instances, cost_breakdown) is seed 0's, so keep seed 0's cost for
+        # consistency checks against that detail
+        if "cost" in rows[0]:
+            plan["cost_seed0"] = float(rows[0]["cost"])
+    return out
+
+
+def main_quality(args):
+    n_seeds = max(1, int(args.seeds))
+    outs = []
+    for s in range(n_seeds):
+        log(f"=== quality seed {s + 1}/{n_seeds} ===")
+        outs.append(_quality_once(args, seed=s))
+    out = _merge_quality_outputs(outs)
     if args.out:
         os.makedirs(os.path.dirname(args.out) or ".", exist_ok=True)
         with open(args.out, "w") as f:
             json.dump(out, f, indent=1)
-        log(f"wrote {args.out}", t0)
+        log(f"wrote {args.out}")
     return out
-
 
 # --------------------------------------------------------------------------- #
 def main():
