@@ -233,20 +233,50 @@ because each one silently produced a wrong answer:
    errors (rate / counts). `hole` instances are coverage defects and are excluded from
    `detect_acc`, which scores only the three scalar rules.
 
-**Measured frontier (SIFT, 42k clean base + 4 corrupted collections):**
+**Published contract, enforced per instance.** Every instance ships the same contract
+(`core.QUALITY_CONTRACT`, mirrored by `vdmbench.planner.QualityContract`), and `eval_quality`
+checks it clause by clause:
 
-| submission | dup err ↓ | outlier err (counts) ↓ | drift err (threshold units) ↓ | detect acc ↑ | cost ↓ |
-|---|---|---|---|---|---|
-| `quality-oracle` | 0 | 0 | 0 | 1.00 | 1.0e12 |
-| `quality-naive` | 0.0217 | 93.2 | 8.15 | 0.25 | 0 |
-| `vecprof-ref` | **4.3e-5** | **9.2** | **0.99** | **1.00** | **3.6e9** |
+| clause | op | mapping onto the scalar prediction interface |
+|---|---|---|
+| `integrity_recall` | `>= 1.0` | no ε-pair may be missed; enforced as the one-sided rate clause `reported dup_rate >= true dup_rate` (equivalently recall 1.0) |
+| `outlier_rel_tol` | `<= 0.25` | `abs(pred − truth) / max(1, truth)` |
+| `drift_tol_thr_units` | `<= 2.0` | `abs(pred − truth) / drift_threshold` |
+
+`eval_quality` reports per-instance `contract_met`, the aggregate `contract_rate`, and every
+failure with its clause, measured value, limit and margin. **A submission that looks best on
+mean error but violates a clause is reported as failing** — that is the point of shipping the
+contract rather than only the errors.
+
+**Measured frontier and contract compliance (SIFT, 42k clean base + 4 corrupted
+collections):**
+
+| submission | dup err ↓ | outlier err (counts) ↓ | drift err (threshold units) ↓ | detect acc ↑ | contract rate ↑ | cost ↓ |
+|---|---|---|---|---|---|---|
+| `quality-oracle` | 0 | 0 | 0 | 1.00 | **1.00 (5/5)** | 1.0e12 |
+| `quality-naive` | 0.0217 | 93.2 | 8.15 | 0.25 | **0.00 (0/5)** | 0 |
+| `vecprof-ref` | **4.3e-5** | **9.2** | **0.99** | **1.00** | **0.80 (4/5)** | **3.6e9** |
 
 `vecprof-ref` reaches near-exact duplicates (certified ε-graph), drift within one detection
-threshold, and perfect issue detection at **275× below the exhaustive cost**. The one
-imperfect column is honest: outlier counts come from a full IVF k-NN pass (`nprobe=32`),
-which under-scans slightly and therefore reads +9.2 counts on ~466 true outliers (2%
-relative). Sampling 2,000 of 42,000 points instead gave 25 counts of error — the index pass is
-the structural fix, and the residual is the cost of not being exhaustive.
+threshold on four instances, and perfect issue detection at **275× below the exhaustive cost**
+— but it **fails the contract on the hole collection**: its drift error there is **2.12
+threshold units against the declared 2.0** (the published threshold is 7.07e-5; the hole
+instance's true drift is 7.76e-5 and `vecprof-ref` estimates −7.23e-5). The hole collection is
+a coverage defect, and the drift statistic is being asked to certify a tolerance it cannot meet
+at the published 4,000-vs-4,000 protocol. Before this change the harness scored the mean drift
+error (0.99, "passing") and never looked at the instance; now the failure is explicit. The one
+imperfect *mean* column is also honest: outlier counts come from a full IVF k-NN pass
+(`nprobe=32`), which under-scans slightly and therefore reads +9.2 counts on ~466 true outliers
+(2% relative) — inside the 25% contract tolerance.
+
+**What is still unenforced.** (i) `integrity_recall` is enforced only at the rate level: the
+scalar interface reports the ε-graph vertex rate, not the pair set, so a set with the right rate
+that misses pairs is not caught (the planner harness measures true set recall internally:
+`quality-naive` 0.0, `vecprof-ref` 1.0, an uncertified `nprobe=8` graph 0.986). (ii) The
+contract has no false-positive clause for duplicates: over-reporting `dup_rate` passes
+`integrity_recall` (it is only punished indirectly by `detect_acc` on the clean instance).
+(iii) Coverage: the workload ships `coverage: null` for every instance, so the hole
+collection's actual defect (coverage) is still not scored.
 
 ## Reproduce
 

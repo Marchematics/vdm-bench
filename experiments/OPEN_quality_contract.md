@@ -22,3 +22,12 @@ Recipe (kept here because two subagent attempts died before landing it):
 
 What must not change: metric definitions, the workloads, or any existing analytics/quality number
 that was measured under the current definitions.
+
+## Status: implemented (2026-11-05)
+
+Steps 1-4 are landed. `eval_quality` enforces the contract (`71a6928`), `evaluate.py` /
+`run_reference.py` pass it through (`725e8ab`), the SIFT quality section is populated in
+`leaderboard_sift.md` / `leaderboard.md`, and the measured compliance table plus what is still
+unenforced is in `experiments/quality_contract_2026-11-05.md` and the README quality section.
+Measured on the experiment host: `quality-oracle` 1.00 (5/5), `quality-naive` 0.00 (0/5),
+`vecprof-ref` **0.80 (4/5)** — the hole-collection drift clause fails at **2.119 > 2.0**.
