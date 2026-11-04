@@ -221,11 +221,22 @@ the structural fix, and the residual is the cost of not being exhaustive.
 
 ```bash
 # on a CPU host with the datasets prepared
-python prepare.py --data-root /path/to/data --out workloads
+python prepare.py --data-root /path/to/data --out workloads     # deterministic workloads
 python run_reference.py --data-root /path/to/data --workloads workloads
 python evaluate.py --task analytics --data-root /path/to/data --workloads workloads \
-    --predictions submissions/ana_vec/predictions.json
+    --predictions submissions/ana-vec/predictions.json
+
+# the ana-vec / ana-vec-sampling analytics rows (the ones that are not trivial baselines)
+# are behind --full because they build a 10k-cell IVF and an HNSW index per submission:
+python run_reference.py --dataset sift10m --only analytics --full \
+    --data-root /path/to/data --workloads workloads      # ~15 min at 10M on 24 cores
 ```
+
+**`--full` is required to reproduce the headline analytics rows.** Without it,
+`run_reference.py` writes the same leaderboard with only the trivial baselines
+(`exact-oracle`, `uniform-sampling`, `ivf-plan`) — a reviewer following an older version of this
+section got a leaderboard that silently lacked `ana-vec`, which is a reproducibility trap rather
+than a speed option.
 
 ## Scope and honesty
 
