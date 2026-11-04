@@ -578,7 +578,7 @@ def build_serving(seed=0, n_tenants=8, n_per_tenant=2000, rhos=SERVING_DEFAULT_R
                         "p50": SURFACE_P50.tolist()}}
 
 
-def _simulate_partitioned(arr, service, cores, priority=None, reservation=None):
+def _simulate_partitioned(arr, service, cores, priority=None, reservation=None, admit=None):
     """Per-tenant core allocation + non-preemptive priority within each tenant.
 
     Isolation is the default: cores are *partitioned* by the submission's ``reservation``
@@ -620,11 +620,12 @@ def _simulate_partitioned(arr, service, cores, priority=None, reservation=None):
     # contract. Repairing that silently would flatten exactly the allocation being tested
     # (it did: a deliberate 3-core skew collapsed back to 1 core each).
     pri = None if priority is None else np.asarray(priority, dtype=np.float64)
+    adm = None if admit is None else np.asarray(admit, dtype=bool)
     lat = np.full((T, nq), 1e6, dtype=np.float32)   # unserved = 1e6 ms, fails any SLO
     for i in range(T):
         if alloc[i] == 0:
             continue
-        order = list(range(nq))
+        order = [j for j in range(nq) if adm is None or bool(adm[i, j])]
         if pri is not None:
             order.sort(key=lambda j: (-pri[i, j], arr[i, j]))
         else:
@@ -719,12 +720,17 @@ def _serving_traces(wl):
     return traces
 
 
-def eval_serving_regime(wl, efforts, priority=None, admission=None, r=0):
+def eval_serving_regime(wl, efforts, priority=None, admission=None, r=0, reservation=None):
     """Score one load regime of a serving policy.
 
     Public helper: submissions use it to tune a policy on the *pilot* trace (pass ``wl``
     without ``arrival_eval``). Returns aggregate pass, per-tenant pass, latency tails,
     recall-SLO rate and goodput for regime ``r``.
+
+    ``reservation`` (optional, per-tenant core fractions summing to <= 1) switches from the
+    shared core pool to the *partitioned* simulator: each tenant only gets its reserved cores,
+    so a tenant cannot take capacity from another. Without it the shared pool is used, which
+    is the default the reference baselines are scored under.
     """
     hard = np.asarray(wl["hard"], dtype=bool)
     nT, nq = hard.shape
@@ -736,18 +742,39 @@ def eval_serving_regime(wl, efforts, priority=None, admission=None, r=0):
     adm = None if admission is None else np.asarray(admission, dtype=bool)
     deadline, recall_req = _serving_contract(wl)
     arr = _serving_traces(wl)[int(r)]
-    lat = _simulate(arr, service, int(wl["cores"]), pri, adm)
+    if reservation is None:
+        lat = _simulate(arr, service, int(wl["cores"]), pri, adm)
+    else:
+        lat, _ = _simulate_partitioned(arr, service, int(wl["cores"]), pri, reservation, adm)
+    served = lat if adm is None else lat[adm]      # latency tails over *served* queries only
     if adm is not None:
         lat = np.where(adm, lat, 1e6)      # shed queries are not served -> they fail
     ok = (lat <= deadline) & (recall >= recall_req)
     span = float(arr.max() - arr.min()) + 1e-9
+    if served.size:
+        p95 = float(np.percentile(served, 95))
+        p99 = float(np.percentile(served, 99))
+    else:
+        p95 = p99 = 1e6
     return {"slo_pass": float(ok.mean()),
             "tenant_pass": [float(x) for x in ok.mean(axis=1)],
-            "p95_latency": float(np.percentile(lat, 95)),
-            "p99_latency": float(np.percentile(lat, 99)),
+            "p95_latency": p95,
+            "p99_latency": p99,
             "recall_slo": float((recall >= recall_req).mean()),
             "goodput_qps": float(ok.sum() / span),
             "served_frac": float(adm.mean()) if adm is not None else 1.0}
+
+
+def _policy_vector(pred, key, nT, nR):
+    """Read a per-tenant vector field that may be load-blind (T,) or load-indexed (R, T)."""
+    if key not in pred or pred[key] is None:
+        return None
+    a = np.asarray(pred[key], dtype=np.float64)
+    if a.ndim == 1 and a.shape == (nT,):
+        return a
+    if a.ndim == 2 and a.shape == (nR, nT):
+        return a
+    raise ValueError(f"{key} must be 1-D (T,) or 2-D (R,T), got shape {a.shape}")
 
 
 def _policy_array(pred, key, dtype, nT, nq, nR):
@@ -770,11 +797,12 @@ def eval_serving(pred, wl):
     """Score a serving submission across every load regime in the workload.
 
     A submission returns ``efforts`` (T, nq) and, optionally, ``priority`` (T, nq) where
-    *higher* priority is served first (deadline-aware scheduling, e.g. EDF) and
+    *higher* priority is served first (deadline-aware scheduling, e.g. EDF),
     ``admission`` (T, nq) of queries that are served at all (shed queries fail their
-    contract). Any of the three fields may instead be shaped (R, T, nq), i.e. one policy
-    per load regime — the load regime is public (the pilot trace ships with the workload),
-    the held-out trace realisation is not.
+    contract) and ``reservation`` (T,) of per-tenant core fractions summing to <= 1 (opt in
+    to the partitioned simulator). The array fields may instead be shaped (R, T, nq) and
+    the reservation (R, T), i.e. one policy per load regime — the load regime is public (the
+    pilot trace ships with the workload), the held-out trace realisation is not.
 
     Metrics: ``slo_pass`` (mean over regimes), ``slo_pass_worst`` (worst regime),
     ``slo_pass_overload`` (mean over regimes with rho >= 1.6), ``tenant_pass_worst``
@@ -791,6 +819,7 @@ def eval_serving(pred, wl):
             return {"error": "missing efforts"}
         pri = _policy_array(pred, "priority", np.float64, nT, nq, nR)
         adm = _policy_array(pred, "admission", bool, nT, nq, nR)
+        res = _policy_vector(pred, "reservation", nT, nR)
     except ValueError as e:
         return {"error": str(e)}
 
@@ -799,7 +828,8 @@ def eval_serving(pred, wl):
         e = efforts[r] if efforts.ndim == 3 else efforts
         p = None if pri is None else (pri[r] if pri.ndim == 3 else pri)
         a = None if adm is None else (adm[r] if adm.ndim == 3 else adm)
-        m = eval_serving_regime(wl, e, p, a, r)
+        rv = None if res is None else (res[r] if res.ndim == 2 else res)
+        m = eval_serving_regime(wl, e, p, a, r, rv)
         passes.append(m["slo_pass"])
         per_tenant.append(m["tenant_pass"])
         p95s.append(m["p95_latency"])
