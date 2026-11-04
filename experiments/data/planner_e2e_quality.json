@@ -1,0 +1,508 @@
+{
+ "task": "quality",
+ "setup": {
+  "eps": 25.0,
+  "k_nn": 10,
+  "outlier_thr": 639.3380126953125,
+  "gamma": 1.5861709250243338e-06,
+  "sample_n": 4000,
+  "ref_n": 8000,
+  "dataset_n": 50000,
+  "drift_threshold": 7.07250225056954e-05,
+  "contract": {
+   "kind": "quality",
+   "integrity_recall": 1.0,
+   "outlier_rel_tol": 0.25,
+   "drift_tol_thr_units": 2.0
+  },
+  "pilot_points": 256,
+  "z": 2.0
+ },
+ "plans": {
+  "quality-naive": {
+   "dup_abs_err_mean": 0.021670409081724497,
+   "outlier_abs_err_mean": 93.2,
+   "drift_err_thr_units": 8.14686276780729,
+   "detect_acc": 0.25,
+   "cost": 0.0,
+   "integrity_recall": 0.0,
+   "integrity_violations": 5
+  },
+  "quality-exact": {
+   "dup_abs_err_mean": 0.0,
+   "outlier_abs_err_mean": 0.0,
+   "drift_err_thr_units": 0.0,
+   "detect_acc": 1.0,
+   "cost": 1000000000000.0,
+   "integrity_recall": 1.0,
+   "integrity_violations": 0
+  },
+  "vecprof-ref": {
+   "dup_abs_err_mean": 4.263229043993079e-05,
+   "outlier_abs_err_mean": 9.2,
+   "drift_err_thr_units": 0.9880750487964092,
+   "detect_acc": 1.0,
+   "cost": 3635200495.0,
+   "instances": [
+    {
+     "family": "clean",
+     "level": "-",
+     "dup_rate": 0.0029047619047619048,
+     "n_outliers": 0,
+     "drift": -2.7479459975812795e-05
+    },
+    {
+     "family": "dup",
+     "level": "5%",
+     "dup_rate": 0.09775510204081633,
+     "n_outliers": 0,
+     "drift": -8.730747587856309e-05
+    },
+    {
+     "family": "outlier",
+     "level": "1%",
+     "dup_rate": 0.002876001885902876,
+     "n_outliers": 420,
+     "drift": -4.298179590469541e-05
+    },
+    {
+     "family": "drift",
+     "level": "20%",
+     "dup_rate": 0.0020952380952380953,
+     "n_outliers": 0,
+     "drift": 0.002572952089434544
+    },
+    {
+     "family": "hole",
+     "level": "1%",
+     "dup_rate": 0.002934102934102934,
+     "n_outliers": 0,
+     "drift": -7.226830423833993e-05
+    }
+   ],
+   "cost_all_passes": 3689498095.0,
+   "integrity_recall": 1.0,
+   "integrity_violations": 0
+  },
+  "heuristic-nprobe=8": {
+   "dup_abs_err_mean": 0.0,
+   "outlier_abs_err_mean": 9.2,
+   "drift_err_thr_units": 0.9880750487964092,
+   "detect_acc": 1.0,
+   "cost": 678335875.0,
+   "cost_all_passes": 678335875.0,
+   "integrity_recall": 0.9855720869325031,
+   "integrity_violations": 5
+  },
+  "heuristic-nprobe=32": {
+   "dup_abs_err_mean": 0.0,
+   "outlier_abs_err_mean": 9.2,
+   "drift_err_thr_units": 0.9880750487964092,
+   "detect_acc": 1.0,
+   "cost": 2366053900.0,
+   "cost_all_passes": 2366053900.0,
+   "integrity_recall": 0.9855720869325031,
+   "integrity_violations": 5
+  },
+  "planner@contract_min": {
+   "dup_abs_err_mean": 4.263229043993079e-05,
+   "outlier_abs_err_mean": 2.0,
+   "drift_err_thr_units": 0.9552317314547631,
+   "detect_acc": 1.0,
+   "cost": 1004779215.0,
+   "cost_all_passes": 1004779215.0,
+   "integrity_recall": 1.0,
+   "integrity_violations": 0,
+   "cost_breakdown": {
+    "clean": {
+     "nlist": 2048,
+     "cert_evals": 144357640.0,
+     "knn_evals": 44048000.0,
+     "rff_evals": 3072000.0
+    },
+    "dup": {
+     "nlist": 2048,
+     "cert_evals": 158106180.0,
+     "knn_evals": 46148000.0,
+     "rff_evals": 1024000.0
+    },
+    "outlier": {
+     "nlist": 2048,
+     "cert_evals": 190395712.0,
+     "knn_evals": 44468000.0,
+     "rff_evals": 1024000.0
+    },
+    "drift": {
+     "nlist": 2048,
+     "cert_evals": 139253162.0,
+     "knn_evals": 44048000.0,
+     "rff_evals": 1024000.0
+    },
+    "hole": {
+     "nlist": 2048,
+     "cert_evals": 141681785.0,
+     "knn_evals": 43628000.0,
+     "rff_evals": 1024000.0
+    }
+   },
+   "instances": [
+    {
+     "family": "clean",
+     "level": "-",
+     "dup_rate": 0.0029047619047619048,
+     "n_outliers": 0,
+     "drift": -0.000101853283608739
+    },
+    {
+     "family": "dup",
+     "level": "5%",
+     "dup_rate": 0.09775510204081633,
+     "n_outliers": 0,
+     "drift": -8.241990247542317e-05
+    },
+    {
+     "family": "outlier",
+     "level": "1%",
+     "dup_rate": 0.002876001885902876,
+     "n_outliers": 456,
+     "drift": -2.7279599901988336e-05
+    },
+    {
+     "family": "drift",
+     "level": "20%",
+     "dup_rate": 0.0020952380952380953,
+     "n_outliers": 0,
+     "drift": 0.002751915346799621
+    },
+    {
+     "family": "hole",
+     "level": "1%",
+     "dup_rate": 0.002934102934102934,
+     "n_outliers": 0,
+     "drift": -1.1324525767026923e-06
+    }
+   ]
+  },
+  "planner@matched_vecprof": {
+   "dup_abs_err_mean": 4.263229043993079e-05,
+   "outlier_abs_err_mean": 9.2,
+   "drift_err_thr_units": 0.9552317314547631,
+   "detect_acc": 1.0,
+   "cost": 1961882165.0,
+   "cost_all_passes": 1961882165.0,
+   "integrity_recall": 1.0,
+   "integrity_violations": 0,
+   "cost_breakdown": {
+    "clean": {
+     "nlist": 2048,
+     "cert_evals": 144357640.0,
+     "knn_evals": 231252000.0,
+     "rff_evals": 3072000.0
+    },
+    "dup": {
+     "nlist": 2048,
+     "cert_evals": 158106180.0,
+     "knn_evals": 254390850.0,
+     "rff_evals": 1024000.0
+    },
+    "outlier": {
+     "nlist": 2048,
+     "cert_evals": 190395712.0,
+     "knn_evals": 235791570.0,
+     "rff_evals": 1024000.0
+    },
+    "drift": {
+     "nlist": 2048,
+     "cert_evals": 139253162.0,
+     "knn_evals": 231252000.0,
+     "rff_evals": 1024000.0
+    },
+    "hole": {
+     "nlist": 2048,
+     "cert_evals": 141681785.0,
+     "knn_evals": 226756530.0,
+     "rff_evals": 1024000.0
+    }
+   },
+   "instances": [
+    {
+     "family": "clean",
+     "level": "-",
+     "dup_rate": 0.0029047619047619048,
+     "n_outliers": 0,
+     "drift": -0.000101853283608739
+    },
+    {
+     "family": "dup",
+     "level": "5%",
+     "dup_rate": 0.09775510204081633,
+     "n_outliers": 0,
+     "drift": -8.241990247542317e-05
+    },
+    {
+     "family": "outlier",
+     "level": "1%",
+     "dup_rate": 0.002876001885902876,
+     "n_outliers": 420,
+     "drift": -2.7279599901988336e-05
+    },
+    {
+     "family": "drift",
+     "level": "20%",
+     "dup_rate": 0.0020952380952380953,
+     "n_outliers": 0,
+     "drift": 0.002751915346799621
+    },
+    {
+     "family": "hole",
+     "level": "1%",
+     "dup_rate": 0.002934102934102934,
+     "n_outliers": 0,
+     "drift": -1.1324525767026923e-06
+    }
+   ]
+  }
+ },
+ "plan_selection": {
+  "certified_cost_model": [
+   {
+    "family": "clean",
+    "candidates": [
+     {
+      "nlist": 256,
+      "predicted_pair_evals": 338844606.0,
+      "predicted_eligibility_evals": 10752000.0,
+      "predicted_evals": 349596606.0,
+      "mean_list_size": 164.0625,
+      "mean_elig": 8162.5703125
+     },
+     {
+      "nlist": 512,
+      "predicted_pair_evals": 207853816.0,
+      "predicted_eligibility_evals": 21504000.0,
+      "predicted_evals": 229357816.0,
+      "mean_list_size": 82.03125,
+      "mean_elig": 4987.876953125
+     },
+     {
+      "nlist": 1024,
+      "predicted_pair_evals": 116490513.0,
+      "predicted_eligibility_evals": 43008000.0,
+      "predicted_evals": 159498513.0,
+      "mean_list_size": 41.015625,
+      "mean_elig": 2590.044921875
+     },
+     {
+      "nlist": 2048,
+      "predicted_pair_evals": 58341640.0,
+      "predicted_eligibility_evals": 86016000.0,
+      "predicted_evals": 144357640.0,
+      "mean_list_size": 20.5078125,
+      "mean_elig": 1126.681640625
+     },
+     {
+      "nlist": 4096,
+      "predicted_pair_evals": 26496092.0,
+      "predicted_eligibility_evals": 172032000.0,
+      "predicted_evals": 198528092.0,
+      "mean_list_size": 10.25390625,
+      "mean_elig": 427.10888671875
+     }
+    ],
+    "chosen_nlist": 2048
+   },
+   {
+    "family": "dup",
+    "candidates": [
+     {
+      "nlist": 256,
+      "predicted_pair_evals": 370871736.0,
+      "predicted_eligibility_evals": 11289600.0,
+      "predicted_evals": 382161336.0,
+      "mean_list_size": 172.265625,
+      "mean_elig": 8550.79296875
+     },
+     {
+      "nlist": 512,
+      "predicted_pair_evals": 235826618.0,
+      "predicted_eligibility_evals": 22579200.0,
+      "predicted_evals": 258405818.0,
+      "mean_list_size": 86.1328125,
+      "mean_elig": 5364.7734375
+     },
+     {
+      "nlist": 1024,
+      "predicted_pair_evals": 130989764.0,
+      "predicted_eligibility_evals": 45158400.0,
+      "predicted_evals": 176148164.0,
+      "mean_list_size": 43.06640625,
+      "mean_elig": 2770.884765625
+     },
+     {
+      "nlist": 2048,
+      "predicted_pair_evals": 67789380.0,
+      "predicted_eligibility_evals": 90316800.0,
+      "predicted_evals": 158106180.0,
+      "mean_list_size": 21.533203125,
+      "mean_elig": 1218.02490234375
+     },
+     {
+      "nlist": 4096,
+      "predicted_pair_evals": 30966929.0,
+      "predicted_eligibility_evals": 180633600.0,
+      "predicted_evals": 211600529.0,
+      "mean_list_size": 10.7666015625,
+      "mean_elig": 469.980712890625
+     }
+    ],
+    "chosen_nlist": 2048
+   },
+   {
+    "family": "outlier",
+    "candidates": [
+     {
+      "nlist": 256,
+      "predicted_pair_evals": 1138368089.0,
+      "predicted_eligibility_evals": 10859520.0,
+      "predicted_evals": 1149227609.0,
+      "mean_list_size": 165.703125,
+      "mean_elig": 29413.73046875
+     },
+     {
+      "nlist": 512,
+      "predicted_pair_evals": 650184566.0,
+      "predicted_eligibility_evals": 21719040.0,
+      "predicted_evals": 671903606.0,
+      "mean_list_size": 82.8515625,
+      "mean_elig": 17700.998046875
+     },
+     {
+      "nlist": 1024,
+      "predicted_pair_evals": 290741163.0,
+      "predicted_eligibility_evals": 43438080.0,
+      "predicted_evals": 334179243.0,
+      "mean_list_size": 41.42578125,
+      "mean_elig": 6568.2587890625
+     },
+     {
+      "nlist": 2048,
+      "predicted_pair_evals": 103519552.0,
+      "predicted_eligibility_evals": 86876160.0,
+      "predicted_evals": 190395712.0,
+      "mean_list_size": 20.712890625,
+      "mean_elig": 1984.1416015625
+     },
+     {
+      "nlist": 4096,
+      "predicted_pair_evals": 36958343.0,
+      "predicted_eligibility_evals": 173752320.0,
+      "predicted_evals": 210710663.0,
+      "mean_list_size": 10.3564453125,
+      "mean_elig": 709.17724609375
+     }
+    ],
+    "chosen_nlist": 2048
+   },
+   {
+    "family": "drift",
+    "candidates": [
+     {
+      "nlist": 256,
+      "predicted_pair_evals": 330288042.0,
+      "predicted_eligibility_evals": 10752000.0,
+      "predicted_evals": 341040042.0,
+      "mean_list_size": 164.0625,
+      "mean_elig": 7909.99609375
+     },
+     {
+      "nlist": 512,
+      "predicted_pair_evals": 200141624.0,
+      "predicted_eligibility_evals": 21504000.0,
+      "predicted_evals": 221645624.0,
+      "mean_list_size": 82.03125,
+      "mean_elig": 4795.20703125
+     },
+     {
+      "nlist": 1024,
+      "predicted_pair_evals": 108636101.0,
+      "predicted_eligibility_evals": 43008000.0,
+      "predicted_evals": 151644101.0,
+      "mean_list_size": 41.015625,
+      "mean_elig": 2423.6455078125
+     },
+     {
+      "nlist": 2048,
+      "predicted_pair_evals": 53237162.0,
+      "predicted_eligibility_evals": 86016000.0,
+      "predicted_evals": 139253162.0,
+      "mean_list_size": 20.5078125,
+      "mean_elig": 1024.26611328125
+     },
+     {
+      "nlist": 4096,
+      "predicted_pair_evals": 24019091.0,
+      "predicted_eligibility_evals": 172032000.0,
+      "predicted_evals": 196051091.0,
+      "mean_list_size": 10.25390625,
+      "mean_elig": 385.549072265625
+     }
+    ],
+    "chosen_nlist": 2048
+   },
+   {
+    "family": "hole",
+    "candidates": [
+     {
+      "nlist": 256,
+      "predicted_pair_evals": 324514672.0,
+      "predicted_eligibility_evals": 10644480.0,
+      "predicted_evals": 335159152.0,
+      "mean_list_size": 162.421875,
+      "mean_elig": 8074.36328125
+     },
+     {
+      "nlist": 512,
+      "predicted_pair_evals": 201819312.0,
+      "predicted_eligibility_evals": 21288960.0,
+      "predicted_evals": 223108272.0,
+      "mean_list_size": 81.2109375,
+      "mean_elig": 4947.083984375
+     },
+     {
+      "nlist": 1024,
+      "predicted_pair_evals": 111109913.0,
+      "predicted_eligibility_evals": 42577920.0,
+      "predicted_evals": 153687833.0,
+      "mean_list_size": 40.60546875,
+      "mean_elig": 2512.2880859375
+     },
+     {
+      "nlist": 2048,
+      "predicted_pair_evals": 56525945.0,
+      "predicted_eligibility_evals": 85155840.0,
+      "predicted_evals": 141681785.0,
+      "mean_list_size": 20.302734375,
+      "mean_elig": 1104.7822265625
+     },
+     {
+      "nlist": 4096,
+      "predicted_pair_evals": 25064417.0,
+      "predicted_eligibility_evals": 170311680.0,
+      "predicted_evals": 195376097.0,
+      "mean_list_size": 10.1513671875,
+      "mean_elig": 397.053466796875
+     }
+    ],
+    "chosen_nlist": 2048
+   }
+  ],
+  "outlier_sample": {
+   "pilot_rate": 0.001,
+   "pilot_points": 256,
+   "pilot_cost": 1476736.0,
+   "chosen_S": 8000,
+   "formula": "S = z^2 (1-p) / (tol^2 p), z=2, tol=0.25",
+   "predicted_sd_over_rate": 0.3533765696816924
+  }
+ }
+}

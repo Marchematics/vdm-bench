@@ -1,0 +1,594 @@
+{
+ "task": "serving",
+ "setup": {
+  "n_tenants": 8,
+  "n_queries_per_tenant": 2000,
+  "rhos": [
+   0.7,
+   1.0,
+   1.15,
+   1.6,
+   2.0,
+   2.5,
+   3.0
+  ],
+  "cores": 8,
+  "capacities": [
+   4,
+   8,
+   16
+  ],
+  "contracts": [
+   {
+    "name": "hot-loose-cheap",
+    "L": 140.0,
+    "R": 0.65
+   },
+   {
+    "name": "tight-expensive",
+    "L": 6.0,
+    "R": 0.99
+   },
+   {
+    "name": "tight-high",
+    "L": 9.0,
+    "R": 0.95
+   },
+   {
+    "name": "tight-medium",
+    "L": 7.0,
+    "R": 0.85
+   },
+   {
+    "name": "medium-high",
+    "L": 25.0,
+    "R": 0.95
+   },
+   {
+    "name": "medium-low",
+    "L": 30.0,
+    "R": 0.8
+   },
+   {
+    "name": "loose-expensive",
+    "L": 160.0,
+    "R": 0.99
+   },
+   {
+    "name": "tight-low",
+    "L": 5.0,
+    "R": 0.7
+   }
+  ],
+  "has_heldout_trace": true
+ },
+ "capacities": {
+  "4": {
+   "serving-static": {
+    "slo_pass": 0.009482142857142857,
+    "slo_pass_worst": 0.006,
+    "slo_pass_overload": 0.008109375,
+    "tenant_pass_worst": 0.0,
+    "p95_latency": 8088.9453125,
+    "p99_latency": 8431.31459263393,
+    "recall_slo": 1.0,
+    "goodput_qps": 51.015214446998485,
+    "served_frac": 1.0
+   },
+   "serving-adaptive": {
+    "slo_pass": 0.021526785714285714,
+    "slo_pass_worst": 0.0100625,
+    "slo_pass_overload": 0.013328125,
+    "tenant_pass_worst": 0.0,
+    "p95_latency": 3160.2827889578684,
+    "p99_latency": 3284.3631373814173,
+    "recall_slo": 0.6924374999999999,
+    "goodput_qps": 100.2221163764954,
+    "served_frac": 1.0
+   },
+   "serving-signal": {
+    "slo_pass": 0.014812499999999998,
+    "slo_pass_worst": 0.008625,
+    "slo_pass_overload": 0.011671875,
+    "tenant_pass_worst": 0.0,
+    "p95_latency": 5062.628766741072,
+    "p99_latency": 5267.343854631697,
+    "recall_slo": 0.93975,
+    "goodput_qps": 77.02117082884597,
+    "served_frac": 1.0
+   },
+   "serving-edf": {
+    "slo_pass": 0.23116964285714284,
+    "slo_pass_worst": 0.0425,
+    "slo_pass_overload": 0.104296875,
+    "tenant_pass_worst": 0.0,
+    "p95_latency": 6632.5029296875,
+    "p99_latency": 6888.111118861607,
+    "recall_slo": 1.0,
+    "goodput_qps": 960.0830115935102,
+    "served_frac": 1.0
+   },
+   "planner": {
+    "slo_pass": 0.5423571428571429,
+    "slo_pass_worst": 0.3205,
+    "slo_pass_overload": 0.41918750000000005,
+    "tenant_pass_worst": 0.0,
+    "p95_latency": 209.18661212921143,
+    "p99_latency": 243.88125950949532,
+    "recall_slo": 1.0,
+    "goodput_qps": 2819.3034246289094,
+    "served_frac": 0.5680267857142857,
+    "u_target": 0.94,
+    "calibration": [
+     {
+      "u": 0.7,
+      "pilot_slo_pass": 0.4575267857142857,
+      "pilot_worst": 0.1804375
+     },
+     {
+      "u": 0.8,
+      "pilot_slo_pass": 0.5082053571428572,
+      "pilot_worst": 0.2461875
+     },
+     {
+      "u": 0.85,
+      "pilot_slo_pass": 0.5304642857142857,
+      "pilot_worst": 0.278875
+     },
+     {
+      "u": 0.9,
+      "pilot_slo_pass": 0.5313660714285714,
+      "pilot_worst": 0.305125
+     },
+     {
+      "u": 0.94,
+      "pilot_slo_pass": 0.5416785714285715,
+      "pilot_worst": 0.3205
+     },
+     {
+      "u": 0.95,
+      "pilot_slo_pass": 0.5321607142857142,
+      "pilot_worst": 0.3243125
+     },
+     {
+      "u": 0.96,
+      "pilot_slo_pass": 0.5310089285714285,
+      "pilot_worst": 0.328125
+     },
+     {
+      "u": 0.97,
+      "pilot_slo_pass": 0.5312232142857142,
+      "pilot_worst": 0.332
+     },
+     {
+      "u": 0.98,
+      "pilot_slo_pass": 0.5316785714285713,
+      "pilot_worst": 0.3358125
+     },
+     {
+      "u": 0.99,
+      "pilot_slo_pass": 0.5329464285714286,
+      "pilot_worst": 0.339625
+     }
+    ]
+   },
+   "planner_u_sensitivity": [
+    {
+     "u": 0.7,
+     "slo_pass": 0.4574910714285715,
+     "slo_pass_worst": 0.1804375,
+     "slo_pass_overload": 0.32706250000000003
+    },
+    {
+     "u": 0.8,
+     "slo_pass": 0.5080892857142857,
+     "slo_pass_worst": 0.2461875,
+     "slo_pass_overload": 0.379140625
+    },
+    {
+     "u": 0.85,
+     "slo_pass": 0.5304553571428572,
+     "slo_pass_worst": 0.278875,
+     "slo_pass_overload": 0.404109375
+    },
+    {
+     "u": 0.9,
+     "slo_pass": 0.5303482142857143,
+     "slo_pass_worst": 0.305125,
+     "slo_pass_overload": 0.40925
+    },
+    {
+     "u": 0.94,
+     "slo_pass": 0.5423571428571429,
+     "slo_pass_worst": 0.3205,
+     "slo_pass_overload": 0.41918750000000005
+    },
+    {
+     "u": 0.95,
+     "slo_pass": 0.5368839285714285,
+     "slo_pass_worst": 0.3243125,
+     "slo_pass_overload": 0.42276562500000003
+    },
+    {
+     "u": 0.96,
+     "slo_pass": 0.525,
+     "slo_pass_worst": 0.328125,
+     "slo_pass_overload": 0.41314062500000004
+    },
+    {
+     "u": 0.97,
+     "slo_pass": 0.5254553571428571,
+     "slo_pass_worst": 0.332,
+     "slo_pass_overload": 0.415859375
+    },
+    {
+     "u": 0.98,
+     "slo_pass": 0.5266249999999999,
+     "slo_pass_worst": 0.3358125,
+     "slo_pass_overload": 0.41946875
+    },
+    {
+     "u": 0.99,
+     "slo_pass": 0.5275625,
+     "slo_pass_worst": 0.339625,
+     "slo_pass_overload": 0.4230625
+    }
+   ]
+  },
+  "8": {
+   "serving-static": {
+    "slo_pass": 0.11741071428571428,
+    "slo_pass_worst": 0.014375,
+    "slo_pass_overload": 0.019484374999999998,
+    "tenant_pass_worst": 0.0,
+    "p95_latency": 2563.4544318062917,
+    "p99_latency": 2662.393521445138,
+    "recall_slo": 1.0,
+    "goodput_qps": 361.6056524511352,
+    "served_frac": 1.0
+   },
+   "serving-adaptive": {
+    "slo_pass": 0.32187499999999997,
+    "slo_pass_worst": 0.0266875,
+    "slo_pass_overload": 0.04840625,
+    "tenant_pass_worst": 0.001,
+    "p95_latency": 677.702147756304,
+    "p99_latency": 700.0383033411844,
+    "recall_slo": 0.6924374999999999,
+    "goodput_qps": 1181.3060334845366,
+    "served_frac": 1.0
+   },
+   "serving-signal": {
+    "slo_pass": 0.24335714285714288,
+    "slo_pass_worst": 0.0219375,
+    "slo_pass_overload": 0.0316875,
+    "tenant_pass_worst": 0.0,
+    "p95_latency": 1286.0492343902588,
+    "p99_latency": 1335.0755658830915,
+    "recall_slo": 0.93975,
+    "goodput_qps": 806.1371687041257,
+    "served_frac": 1.0
+   },
+   "serving-edf": {
+    "slo_pass": 0.5766607142857143,
+    "slo_pass_worst": 0.1835625,
+    "slo_pass_overload": 0.330078125,
+    "tenant_pass_worst": 0.0,
+    "p95_latency": 2028.4270330156598,
+    "p99_latency": 2158.732780456543,
+    "recall_slo": 1.0,
+    "goodput_qps": 2649.471454886293,
+    "served_frac": 1.0
+   },
+   "serving-vecslo": {
+    "slo_pass": 0.7728571428571429,
+    "slo_pass_worst": 0.553,
+    "slo_pass_overload": 0.6498125,
+    "tenant_pass_worst": 0.0,
+    "p95_latency": 213.78611741747176,
+    "p99_latency": 316.89040878840854,
+    "recall_slo": 0.9782053571428572,
+    "goodput_qps": 4229.132212357162,
+    "served_frac": 0.8392857142857143
+   },
+   "planner": {
+    "slo_pass": 0.7819017857142857,
+    "slo_pass_worst": 0.5795625,
+    "slo_pass_overload": 0.65521875,
+    "tenant_pass_worst": 0.0,
+    "p95_latency": 137.3111833844866,
+    "p99_latency": 189.93749373299735,
+    "recall_slo": 1.0,
+    "goodput_qps": 4289.636616714065,
+    "served_frac": 0.8072946428571429,
+    "u_target": 0.99,
+    "calibration": [
+     {
+      "u": 0.7,
+      "pilot_slo_pass": 0.7063125,
+      "pilot_worst": 0.4771875
+     },
+     {
+      "u": 0.8,
+      "pilot_slo_pass": 0.7484821428571429,
+      "pilot_worst": 0.51225
+     },
+     {
+      "u": 0.85,
+      "pilot_slo_pass": 0.7632589285714285,
+      "pilot_worst": 0.52975
+     },
+     {
+      "u": 0.9,
+      "pilot_slo_pass": 0.7705982142857143,
+      "pilot_worst": 0.54725
+     },
+     {
+      "u": 0.94,
+      "pilot_slo_pass": 0.7787053571428572,
+      "pilot_worst": 0.561625
+     },
+     {
+      "u": 0.95,
+      "pilot_slo_pass": 0.7808214285714286,
+      "pilot_worst": 0.56525
+     },
+     {
+      "u": 0.96,
+      "pilot_slo_pass": 0.7815982142857143,
+      "pilot_worst": 0.5688125
+     },
+     {
+      "u": 0.97,
+      "pilot_slo_pass": 0.7809732142857142,
+      "pilot_worst": 0.572375
+     },
+     {
+      "u": 0.98,
+      "pilot_slo_pass": 0.780125,
+      "pilot_worst": 0.576
+     },
+     {
+      "u": 0.99,
+      "pilot_slo_pass": 0.7825892857142857,
+      "pilot_worst": 0.5795625
+     }
+    ]
+   },
+   "planner_u_sensitivity": [
+    {
+     "u": 0.7,
+     "slo_pass": 0.7063125,
+     "slo_pass_worst": 0.4771875,
+     "slo_pass_overload": 0.57809375
+    },
+    {
+     "u": 0.8,
+     "slo_pass": 0.7484821428571429,
+     "slo_pass_worst": 0.51225,
+     "slo_pass_overload": 0.621625
+    },
+    {
+     "u": 0.85,
+     "slo_pass": 0.76425,
+     "slo_pass_worst": 0.52975,
+     "slo_pass_overload": 0.637671875
+    },
+    {
+     "u": 0.9,
+     "slo_pass": 0.7734821428571428,
+     "slo_pass_worst": 0.54725,
+     "slo_pass_overload": 0.642265625
+    },
+    {
+     "u": 0.94,
+     "slo_pass": 0.781607142857143,
+     "slo_pass_worst": 0.561625,
+     "slo_pass_overload": 0.6573437500000001
+    },
+    {
+     "u": 0.95,
+     "slo_pass": 0.7835357142857143,
+     "slo_pass_worst": 0.56525,
+     "slo_pass_overload": 0.661078125
+    },
+    {
+     "u": 0.96,
+     "slo_pass": 0.7816071428571428,
+     "slo_pass_worst": 0.5688125,
+     "slo_pass_overload": 0.65703125
+    },
+    {
+     "u": 0.97,
+     "slo_pass": 0.7772142857142857,
+     "slo_pass_worst": 0.572375,
+     "slo_pass_overload": 0.6485625
+    },
+    {
+     "u": 0.98,
+     "slo_pass": 0.7793482142857141,
+     "slo_pass_worst": 0.576,
+     "slo_pass_overload": 0.651515625
+    },
+    {
+     "u": 0.99,
+     "slo_pass": 0.7819017857142857,
+     "slo_pass_worst": 0.5795625,
+     "slo_pass_overload": 0.65521875
+    }
+   ]
+  },
+  "16": {
+   "serving-static": {
+    "slo_pass": 0.4343125,
+    "slo_pass_worst": 0.0425,
+    "slo_pass_overload": 0.10453124999999999,
+    "tenant_pass_worst": 0.0,
+    "p95_latency": 493.234169278826,
+    "p99_latency": 507.4308613368443,
+    "recall_slo": 1.0,
+    "goodput_qps": 1662.6274909698736,
+    "served_frac": 1.0
+   },
+   "serving-adaptive": {
+    "slo_pass": 0.6088214285714286,
+    "slo_pass_worst": 0.166125,
+    "slo_pass_overload": 0.546109375,
+    "tenant_pass_worst": 0.0035,
+    "p95_latency": 30.141077995300293,
+    "p99_latency": 31.179209572928293,
+    "recall_slo": 0.6924374999999999,
+    "goodput_qps": 3273.748401881374,
+    "served_frac": 1.0
+   },
+   "serving-signal": {
+    "slo_pass": 0.6392946428571429,
+    "slo_pass_worst": 0.08425,
+    "slo_pass_overload": 0.45098437499999994,
+    "tenant_pass_worst": 0.001,
+    "p95_latency": 156.22937202453613,
+    "p99_latency": 160.74496139798845,
+    "recall_slo": 0.93975,
+    "goodput_qps": 2987.2235174107404,
+    "served_frac": 1.0
+   },
+   "serving-edf": {
+    "slo_pass": 0.8909821428571428,
+    "slo_pass_worst": 0.6394375,
+    "slo_pass_overload": 0.837390625,
+    "tenant_pass_worst": 0.0015,
+    "p95_latency": 390.4791943686349,
+    "p99_latency": 476.7036487715585,
+    "recall_slo": 1.0,
+    "goodput_qps": 5056.341380753246,
+    "served_frac": 1.0
+   },
+   "planner": {
+    "slo_pass": 0.9376160714285714,
+    "slo_pass_worst": 0.82975,
+    "slo_pass_overload": 0.919,
+    "tenant_pass_worst": 0.0,
+    "p95_latency": 4.840806450162615,
+    "p99_latency": 10.188626153128487,
+    "recall_slo": 1.0,
+    "goodput_qps": 5512.855665720671,
+    "served_frac": 0.9376160714285714,
+    "u_target": 0.99,
+    "calibration": [
+     {
+      "u": 0.7,
+      "pilot_slo_pass": 0.8832500000000001,
+      "pilot_worst": 0.7040625
+     },
+     {
+      "u": 0.8,
+      "pilot_slo_pass": 0.9064821428571428,
+      "pilot_worst": 0.747625
+     },
+     {
+      "u": 0.85,
+      "pilot_slo_pass": 0.9157053571428572,
+      "pilot_worst": 0.7693125
+     },
+     {
+      "u": 0.9,
+      "pilot_slo_pass": 0.9250892857142856,
+      "pilot_worst": 0.790875
+     },
+     {
+      "u": 0.94,
+      "pilot_slo_pass": 0.9304642857142857,
+      "pilot_worst": 0.8064375
+     },
+     {
+      "u": 0.95,
+      "pilot_slo_pass": 0.9318482142857142,
+      "pilot_worst": 0.81075
+     },
+     {
+      "u": 0.96,
+      "pilot_slo_pass": 0.9332232142857142,
+      "pilot_worst": 0.8150625
+     },
+     {
+      "u": 0.97,
+      "pilot_slo_pass": 0.9346071428571427,
+      "pilot_worst": 0.819375
+     },
+     {
+      "u": 0.98,
+      "pilot_slo_pass": 0.9359821428571429,
+      "pilot_worst": 0.8236875
+     },
+     {
+      "u": 0.99,
+      "pilot_slo_pass": 0.9373660714285714,
+      "pilot_worst": 0.828
+     }
+    ]
+   },
+   "planner_u_sensitivity": [
+    {
+     "u": 0.7,
+     "slo_pass": 0.8832500000000001,
+     "slo_pass_worst": 0.7040625,
+     "slo_pass_overload": 0.8238593750000001
+    },
+    {
+     "u": 0.8,
+     "slo_pass": 0.9064821428571428,
+     "slo_pass_worst": 0.747625,
+     "slo_pass_overload": 0.8645156250000001
+    },
+    {
+     "u": 0.85,
+     "slo_pass": 0.9157053571428572,
+     "slo_pass_worst": 0.7693125,
+     "slo_pass_overload": 0.8806562499999999
+    },
+    {
+     "u": 0.9,
+     "slo_pass": 0.9250892857142856,
+     "slo_pass_worst": 0.790875,
+     "slo_pass_overload": 0.897078125
+    },
+    {
+     "u": 0.94,
+     "slo_pass": 0.9307142857142857,
+     "slo_pass_worst": 0.8081875,
+     "slo_pass_overload": 0.9069218749999999
+    },
+    {
+     "u": 0.95,
+     "slo_pass": 0.9320982142857143,
+     "slo_pass_worst": 0.8125,
+     "slo_pass_overload": 0.90934375
+    },
+    {
+     "u": 0.96,
+     "slo_pass": 0.9334732142857142,
+     "slo_pass_worst": 0.8168125,
+     "slo_pass_overload": 0.9117500000000001
+    },
+    {
+     "u": 0.97,
+     "slo_pass": 0.9348571428571428,
+     "slo_pass_worst": 0.821125,
+     "slo_pass_overload": 0.914171875
+    },
+    {
+     "u": 0.98,
+     "slo_pass": 0.9362321428571428,
+     "slo_pass_worst": 0.8254375,
+     "slo_pass_overload": 0.916578125
+    },
+    {
+     "u": 0.99,
+     "slo_pass": 0.9376160714285714,
+     "slo_pass_worst": 0.82975,
+     "slo_pass_overload": 0.919
+    }
+   ]
+  }
+ }
+}
