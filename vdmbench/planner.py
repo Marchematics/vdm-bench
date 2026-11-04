@@ -630,12 +630,19 @@ class ServingPlanner:
     * scheduling: earliest-deadline-first, which is the contract's own ordering (priority =
       -deadline), not a tuned parameter.
 
-    The only calibrated scalar is the utilisation target ``u``; it is calibrated **once** on
-    the visible pilot trace, shared by every tenant and every regime (not per-task tuned), and
-    the experiment doc reports the sensitivity of the result to it.
+    The action space is (i) the admission profile -- the per-query cost-ordered knapsack or
+    **per-tenant masks** -- (ii) the admission fraction ``u`` (values above 1.0 are deliberate
+    over-admission), and (iii) a **per-tenant hard-effort quota**.  Every action is selected, per
+    load regime, by scoring it on the visible pilot queue state; the single-``u`` behaviour is
+    kept for the sensitivity curve (``ServingPlanner(u_target=u)``).
     """
 
-    U_GRID = (0.70, 0.80, 0.85, 0.90, 0.94, 0.95, 0.96, 0.97, 0.98, 0.99)
+    #: Admission targets to choose from.  Values > 1.0 are *deliberate over-admission*: the
+    #: static knapsack's long-run load target can be above the nominal capacity because EDF
+    #: serves the cheap admitted set before the queue builds up; the target is selected on the
+    #: pilot like every other action, it is not a tuned constant.
+    U_GRID = (0.70, 0.80, 0.85, 0.90, 0.94, 0.95, 0.96, 0.97, 0.98, 0.99,
+              1.00, 1.005, 1.01, 1.015, 1.02, 1.025, 1.03, 1.035, 1.04)
 
     def __init__(self, u_target=None):
         self.u_target = u_target
@@ -721,6 +728,94 @@ class ServingPlanner:
             best = adm.copy()
         return best
 
+    @staticmethod
+    def _tenant_block_adm(w, feasible, budget, service):
+        """Per-tenant admission mask: cheapest tenants first, first-k partial at the margin.
+
+        This is the per-tenant primitive: a whole tenant's feasible queries are admitted (or
+        partially, by earliest query index) according to the cost model's value/load order,
+        instead of a global per-query order.
+        """
+        T, nq = w.shape
+        load_i = w.sum(1)
+        order = np.argsort(load_i / nq, kind="stable")
+        adm = np.zeros((T, nq), dtype=bool)
+        load = 0.0
+        for i in order:
+            if load + load_i[i] <= budget:
+                adm[i] = feasible[i]
+                load += load_i[i]
+            else:
+                room = budget - load
+                if room <= 0.0:
+                    continue
+                js = np.flatnonzero(feasible[i])
+                if not len(js):
+                    continue
+                cum = np.cumsum(w[i, js])
+                keep = cum <= room
+                adm[i, js[keep]] = True
+                load += float(w[i, js[keep]].sum())
+                break
+        return adm
+
+    def _policy_for_regime(self, wl, rates, r, u, profile, debt_rounds=0):
+        """Build one regime's policy for an action (profile, admission fraction u)."""
+        T, nq = wl["hard"].shape
+        cores = int(wl["cores"])
+        cap = cores * 1000.0
+        effort, service, _, feasible, deadline, _ = self._effort_and_service(wl)
+        w = np.where(feasible, np.asarray(rates[r])[:, None] * service / nq, 0.0)
+        budget = u * cap
+        if profile == "per_tenant":
+            adm = self._tenant_block_adm(w, feasible, budget, service)
+        else:
+            adm = self._knapsack(w, feasible, budget, service)
+        if debt_rounds:
+            adm = self._debt_refine(wl["arrival"][r], service, cores, deadline, w,
+                                    feasible, adm, budget, rounds=debt_rounds)
+        return effort, -deadline, adm
+
+    def _quota_refine(self, wl, rates, r, u, profile, effort, pri, adm, debt_rounds=2):
+        """Per-tenant hard-effort quota action: cap one tenant's hard class to base effort.
+
+        The cap trades recall on that tenant's hard class for service time.  It is a *selectable
+        action*: it is kept only when the pilot queue says it improves the regime's pass (or
+        its worst tenant), so it is not a hard-coded default.
+        """
+        T, nq = wl["hard"].shape
+        cores = int(wl["cores"])
+        cap = cores * 1000.0
+        _, _, _, _, deadline, recall_req = self._effort_and_service(wl)
+        base = np.array([_nprobe_for(t["R"]) for t in wl["tenants"]], dtype=np.int64)
+        hard = np.asarray(wl["hard"], dtype=bool)
+
+        def score(eff, a):
+            m = core.eval_serving_regime(wl, eff, pri, a, r)
+            return (m["slo_pass"], min(m["tenant_pass"]))
+
+        best = score(effort, adm)
+        cur_eff, cur_adm = effort.copy(), adm
+        for i in range(T):
+            if not hard[i].any():
+                continue
+            cand = cur_eff.copy()
+            cand[i][hard[i]] = base[i]
+            s2, rec2 = core._serving_service_recall(wl, cand)
+            feas2 = (s2 <= deadline) & (rec2 >= recall_req)
+            w2 = np.where(feas2, np.asarray(rates[r])[:, None] * s2 / nq, 0.0)
+            if profile == "per_tenant":
+                a2 = self._tenant_block_adm(w2, feas2, u * cap, s2)
+            else:
+                a2 = self._knapsack(w2, feas2, u * cap, s2)
+            if debt_rounds:
+                a2 = self._debt_refine(wl["arrival"][r], s2, cores, deadline, w2,
+                                       feas2, a2, u * cap, rounds=debt_rounds)
+            key = score(cand, a2)
+            if key > best:
+                best, cur_eff, cur_adm = key, cand, a2
+        return cur_eff, cur_adm
+
     def _build(self, wl, rates, u_target, debt_rounds=2):
         T, nq = wl["hard"].shape
         rhos = [float(x) for x in wl.get("rhos", [1.0])]
@@ -748,10 +843,17 @@ class ServingPlanner:
     def plan(self, wl, u_target=None, calibrate=True, debt_rounds=2):
         """Return a serving policy plus the calibration it chose.
 
-        ``wl`` must be the *pilot* workload (``arrival``, no ``arrival_eval``) when
-        ``calibrate`` is true: the utilisation target is chosen by evaluating this planner's
-        own policy on the visible trace.  The returned policy is then applied unchanged to the
-        held-out trace by the caller.
+        The planner's action space is (i) the admission profile -- per-query cost-ordered
+        knapsack or **per-tenant masks** -- (ii) the admission fraction ``u`` (a target > 1.0 is
+        deliberate over-admission), and (iii) a **per-tenant hard-effort quota** (cap a
+        tenant's hard class to base effort).  Every action is *selected*, per load regime, by
+        evaluating it on the visible pilot queue state with the planner's own scorer; nothing is
+        a hard-coded per-tenant constant.  The returned policy is load-indexed (R, T, nq), which
+        the evaluator accepts.
+
+        ``u_target`` (optional) pins a single admission fraction and returns the load-blind
+        cost-ordered knapsack policy at it -- this is what the ``planner_u_sensitivity`` sweep
+        uses, so the sensitivity curve stays interpretable.
         """
         pilot = {k: v for k, v in wl.items() if k != "arrival_eval"}
         T, nq = pilot["hard"].shape
@@ -761,24 +863,50 @@ class ServingPlanner:
         rates = nq / span
         if u_target is None and self.u_target is not None:
             u_target = self.u_target
-        calib = []
-        if u_target is None:
-            if not calibrate:
+        if u_target is not None:
+            if not calibrate and u_target is None:
                 raise ValueError("u_target not given and calibrate=False")
+            pol = self._build(pilot, rates, u_target, debt_rounds=debt_rounds)
+            pol["u_target"] = float(u_target)
+            pol["u_target_per_regime"] = [float(u_target)] * nR
+            pol["profile_per_regime"] = ["per_query"] * nR
+            pol["calibration"] = []
+            return pol
+        if not calibrate:
+            raise ValueError("u_target not given and calibrate=False")
+        effs = np.zeros((nR, T, nq), dtype=np.int64)
+        adms = np.zeros((nR, T, nq), dtype=bool)
+        pri_all = np.zeros((nR, T, nq), dtype=np.float64)
+        choices = []
+        for r in range(nR):
             best = None
-            for u in self.U_GRID:
-                pol = self._build(pilot, rates, u, debt_rounds=debt_rounds)
-                m = core.eval_serving(pol, pilot)
-                calib.append({"u": float(u), "pilot_slo_pass": float(m["slo_pass"]),
-                              "pilot_worst": float(m["slo_pass_worst"])})
-                key = (m["slo_pass"], m["slo_pass_worst"])
-                if best is None or key > best[0]:
-                    best = (key, u)
-            u_target = best[1]
-        pol = self._build(pilot, rates, u_target, debt_rounds=debt_rounds)
-        pol["u_target"] = float(u_target)
-        pol["calibration"] = calib
-        return pol
+            for profile in ("per_query", "per_tenant"):
+                for u in self.U_GRID:
+                    e, p, a = self._policy_for_regime(pilot, rates, r, float(u), profile,
+                                                      debt_rounds=0)
+                    m = core.eval_serving_regime(pilot, e, p, a, r)
+                    # Score: pass, with a small latency-tail penalty so the selected action does
+                    # not buy marginal passes by admitting queries that sit near their deadline.
+                    key = (m["slo_pass"] - 2e-4 * m["p95_latency"], m["slo_pass"],
+                           min(m["tenant_pass"]))
+                    if best is None or key > best[0]:
+                        best = (key, float(u), profile, e, p, a)
+            key, u, profile, e, p, a = best
+            # apply the queue-state refinement to the selected action, then the per-tenant quota
+            e, p2, a = self._policy_for_regime(pilot, rates, r, u, profile, debt_rounds=debt_rounds)
+            e, a = self._quota_refine(pilot, rates, r, u, profile, e, p2, a,
+                                      debt_rounds=debt_rounds)
+            m2 = core.eval_serving_regime(pilot, e, p2, a, r)
+            choices.append({"regime": int(r), "rho": float(pilot["rhos"][r]),
+                            "u": float(u), "profile": profile,
+                            "pilot_slo_pass": float(m2["slo_pass"]),
+                            "pilot_worst_tenant": float(min(m2["tenant_pass"]))})
+            effs[r], adms[r], pri_all[r] = e, a, p2
+        return {"efforts": effs, "priority": pri_all, "admission": adms,
+                "u_target": float(choices[-1]["u"]),
+                "u_target_per_regime": [c["u"] for c in choices],
+                "profile_per_regime": [c["profile"] for c in choices],
+                "calibration": choices}
 
 
 # =========================================================================== #

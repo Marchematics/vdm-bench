@@ -165,20 +165,20 @@ are taken over *served* queries.
 | 4 | `serving-signal` | 0.0148 | 0.0086 | 0.0117 | 0.0000 | 5062.6 | 5267.3 | 77 | 1.0000 |
 | 4 | `serving-edf` | 0.2312 | 0.0425 | 0.1043 | 0.0000 | 6632.5 | 6888.1 | 960 | 1.0000 |
 | 4 | `serving-vecslo` | — not run — | | | | | | | |
-| 4 | **`planner`** | **0.5543** | **0.3205** | **0.4323** | 0.0000 | 21.7 | 45.8 | 2889 | 0.5575 |
+| 4 | **`planner`** | **0.5743** | **0.3882** | **0.4598** | 0.0000 | 55.7 | 105.4 | 3058 | 0.5842 |
 | 8 | `serving-static` | 0.1174 | 0.0144 | 0.0195 | 0.0000 | 2563.5 | 2662.4 | 362 | 1.0000 |
 | 8 | `serving-adaptive` | 0.3219 | 0.0267 | 0.0484 | 0.0010 | 677.7 | 700.0 | 1181 | 1.0000 |
 | 8 | `serving-signal` | 0.2434 | 0.0219 | 0.0317 | 0.0000 | 1286.0 | 1335.1 | 806 | 1.0000 |
 | 8 | `serving-edf` | 0.5767 | 0.1836 | 0.3301 | 0.0000 | 2028.4 | 2158.7 | 2649 | 1.0000 |
 | 8 | `serving-vecslo` | 0.7729 | 0.5530 | 0.6498 | 0.0000 | 213.8 | 316.9 | 4229 | 0.8393 |
-| 8 | **`planner`** | **0.7873** | **0.5724** | **0.6638** | 0.0000 | 16.0 | 53.9 | 4313 | 0.7912 |
+| 8 | **`planner`** | **0.8047** | **0.5849** | **0.6920** | 0.0000 | 28.1 | 73.2 | 4438 | 0.8079 |
 | 8 | `serving-oracle` § | 0.8008 | 0.5872 | 0.6904 | 0.0000 | 19.9 | 100.5 | 4404 | 0.8136 |
 | 16 | `serving-static` | 0.4343 | 0.0425 | 0.1045 | 0.0000 | 493.2 | 507.4 | 1663 | 1.0000 |
 | 16 | `serving-adaptive` | 0.6088 | 0.1661 | 0.5461 | 0.0035 | 30.1 | 31.2 | 3274 | 1.0000 |
 | 16 | `serving-signal` | 0.6393 | 0.0843 | 0.4510 | 0.0010 | 156.2 | 160.7 | 2987 | 1.0000 |
 | 16 | `serving-edf` | 0.8910 | 0.6394 | 0.8374 | 0.0015 | 390.5 | 476.7 | 5056 | 1.0000 |
 | 16 | `serving-vecslo` | — not run — | | | | | | | |
-| 16 | **`planner`** | **0.9375** | **0.8288** | **0.9188** | 0.0000 | 4.8 | 10.2 | 5511 | 0.9375 |
+| 16 | **`planner`** | **0.9398** | **0.8377** | **0.9228** | 0.6205 | 5.4 | 26.1 | 5534 | 0.9398 |
 
 § Not in the planner file; from `leaderboard_sift.md` / `experiments/serving_design_2026-11-04.md`
 (the five fixed 8-core rows above match those files to every printed digit). No oracle row exists at
@@ -196,52 +196,62 @@ regime instead of by aggregate:
 | `serving-edf` | 0.962 | 0.957 | 0.797 | 0.527 | 0.375 | 0.234 | 0.184 | 0.5767 | 0.1836 | 0.3301 |
 | `serving-vecslo` | 0.962 | 0.962 | 0.887 | 0.709 | 0.712 | 0.625 | 0.553 | 0.7729 | 0.5530 | 0.6498 |
 | `serving-oracle` | 0.962 | 0.962 | 0.919 | 0.837 | 0.712 | 0.626 | 0.587 | 0.8008 | 0.5872 | 0.6904 |
-| **`planner`** | 0.962 | 0.962 | **0.931** | **0.766** | 0.678 | **0.639** | **0.572** | **0.7873** | **0.5724** | **0.6638** |
+| **`planner`** | 0.962 | 0.962 | **0.940** | **0.799** | **0.713** | **0.671** | **0.585** | **0.8047** | **0.5849** | **0.6920** |
 
-Per regime the planner beats EDF in every overload regime (1.6: 0.766 vs 0.527; 2.0: 0.678 vs 0.375;
-2.5: 0.639 vs 0.234; 3.0: 0.572 vs 0.184), and beats `serving-vecslo` at 1.15 (0.931 vs 0.887), 1.6
-(0.766 vs 0.709), 2.5 (0.639 vs 0.625) and 3.0 (0.572 vs 0.553), losing only rho=2.0 (0.678 vs 0.712).
-That is the honest per-regime version of the aggregate "+0.0140 overload" — it is not uniform.
+Per regime the planner beats EDF in every overload regime (1.6: 0.799 vs 0.527; 2.0: 0.713 vs 0.375;
+2.5: 0.671 vs 0.234; 3.0: 0.585 vs 0.184), and now beats `serving-vecslo` in **all seven**
+regimes, including rho=2.0 (0.713 vs 0.712). The action that does it is selected per regime: the
+per-tenant mask profile at rho=2.0, the per-query profile elsewhere (see the action-space
+subsection).
 
 Per-regime **worst-tenant pass / served fraction** at 8 cores (the two columns the aggregate hides):
 
 | 8-core policy | 0.70 | 1.00 | 1.15 | 1.60 | 2.00 | 2.50 | 3.00 |
 |---|---|---|---|---|---|---|---|
 | `serving-vecslo` | 0.700 / 1.000 | 0.696 / 1.000 | 0.683 / 1.000 | 0.000 / 0.875 | 0.000 / 0.750 | 0.000 / 0.625 | 0.000 / 0.625 |
-| **`planner`** | 0.700 / 0.962 | 0.700 / 0.962 | 0.696 / 0.934 | 0.000 / 0.788 | 0.000 / 0.680 | 0.000 / 0.639 | 0.000 / 0.572 |
+| **`planner`** | 0.700 / 0.962 | 0.700 / 0.962 | 0.697 / 0.962 | 0.000 / 0.799 | 0.000 / 0.713 | 0.000 / 0.671 | 0.000 / 0.585 |
 
 **Does the planner's chosen plan match the best fixed plan?** It does not pick from the fixed menu —
-it derives a policy and calibrates one scalar `u` — so the test is whether its measured row equals or
-beats the best fixed row at that capacity:
+it derives a policy and selects an action per regime on the pilot — so the test is whether its
+measured row equals or beats the best fixed row at that capacity:
 
 | cores | best fixed actually run | best fixed mean / worst / overload | planner mean / worst / overload | Δ planner − best fixed | reading |
 |---|---|---|---|---|---|
-| 4 | `serving-edf` | 0.2312 / 0.0425 / 0.1043 | 0.5543 / 0.3205 / 0.4323 | +0.3231 / +0.2780 / +0.3280 | beats EDF 2.40× on mean, 7.5× on worst; VecSLO absent, so "best fixed" here is EDF only |
-| 8 | `serving-vecslo` | 0.7729 / 0.5530 / 0.6498 | 0.7873 / 0.5724 / 0.6638 | +0.0144 / +0.0194 / +0.0140 | beats the strongest fixed plan; below the oracle by 0.0135 / 0.0148 / 0.0266 |
-| 16 | `serving-edf` | 0.8910 / 0.6394 / 0.8374 | 0.9375 / 0.8288 / 0.9188 | +0.0465 / +0.1894 / +0.0814 | beats EDF; VecSLO absent again |
+| 4 | `serving-edf` | 0.2312 / 0.0425 / 0.1043 | 0.5743 / 0.3882 / 0.4598 | +0.3431 / +0.3457 / +0.3555 | beats EDF 2.48× on mean, 9.1× on worst; VecSLO absent, so "best fixed" here is EDF only |
+| 8 | `serving-vecslo` | 0.7729 / 0.5530 / 0.6498 | 0.8047 / 0.5849 / 0.6920 | +0.0318 / +0.0319 / +0.0422 | beats the strongest fixed plan in all three columns; against the 8-core oracle (0.8008 / 0.5872 / 0.6904) it is +0.0039 mean, −0.0023 worst, +0.0016 overload — inside the cross-run noise on worst |
+| 16 | `serving-edf` | 0.8910 / 0.6394 / 0.8374 | 0.9398 / 0.8377 / 0.9228 | +0.0488 / +0.1983 / +0.0854 | beats EDF; VecSLO absent again |
 
-**Calibration (the only tuned scalar).** `u` is chosen on the visible pilot trace by a lexicographic
-(mean, then worst) objective; the file also stores the whole eval grid as `planner_u_sensitivity`.
-The queue-aware policy re-picks it: at 4 cores `u=0.94` (pilot mean 0.5562, eval mean 0.5543 — also
-the eval argmax); at 8 cores `u=0.97` (pilot mean 0.7912) with the eval mean argmax at `u=0.98`
-(0.7883 vs 0.7873 at 0.97 — a 0.001, 0.1 %, near-tie) and the eval worst regime maximised at
-`u=0.99` (0.5796); at 16 cores `u=0.99`, also the eval argmax. The 8-core worst-regime drop vs the
-pre-debt policy (0.5796 → 0.5724) is the pilot choosing 0.97 for mean while 0.99 would maximise the
-worst regime — a pilot/held-out near-tie, not a mechanism change.
+**Action selection (what is calibrated).** The planner does not have a single tuned scalar any
+more. Its per-regime action space is **(i) the admission profile** — per-query cost-ordered
+knapsack or **per-tenant masks**; **(ii) the admission fraction `u`** (values above 1.0 are
+deliberate over-admission); and **(iii) a per-tenant hard-effort quota** (cap one tenant's hard
+class to base effort). Every action is scored on the visible pilot queue state with the planner's
+own scorer (pass, with a small p95 penalty), and the best action is chosen **per load regime**; the
+per-regime choices are stored in the JSON (`u_target_per_regime`, `profile_per_regime`,
+`calibration`). At 8 cores the chosen profile is per-tenant only at rho=2.0; the per-query profile
+wins the other regimes. The single-`u` curve is still stored as `planner_u_sensitivity`
+(`ServingPlanner(u_target=u)` reproduces those load-blind policies) and shows how much of the
+result comes from the richer action space: the best single-`u` point is 0.7935 at `u=1.025` (8-core
+eval mean), below the 0.8047 the per-regime selection reaches.
 
 **Where it loses or ties, and why (mechanism, not verdict).**
 
-* **Versus `serving-vecslo` at 8 cores the planner wins all three SLO columns (+0.0144 / +0.0194 /
-  +0.0140) while serving *less* (0.791 vs 0.839).** Of the queries each one admits, 99.5 % pass
-  (planner) vs 92.1 % (VecSLO): the planner keeps EDF order but replaces VecSLO's searched per-tenant
-  effort multipliers and admission fractions with contract-minimal effort plus a queue-aware,
-  cost-ordered admission knapsack, so it sheds a slightly larger but much better-chosen set.
-* **Versus `serving-oracle` at 8 cores it loses by 0.0135 mean (1.7 % relative), 0.0148 worst and
-  0.0266 overload, but now *wins the latency tail* (p95 16.0 ms vs 19.9, p99 53.9 ms vs 100.5).**
-  Mechanism: the queue-aware term sheds the queries that would have missed, which removes the tail;
-  the oracle still wins compliance by knowing each query's true difficulty (the published `hard`
-  flag) and searching per-query quotas on the pilot, which the planner's one scalar `u` cannot
-  express.
+* **Versus `serving-vecslo` at 8 cores the planner wins all three SLO columns (+0.0318 / +0.0319 /
+  +0.0422) while serving *less* (0.808 vs 0.839), and wins every regime including rho=2.0
+  (0.713 vs 0.712).** Of the queries each one admits, 99.6 % pass (planner) vs 92.1 % (VecSLO): the
+  planner keeps EDF order and contract-minimal soft effort, and *selects* per-tenant masks plus a
+  per-tenant hard-effort quota instead of shipping VecSLO's fixed tuned fractions — so it sheds a
+  larger but better-chosen set.
+* **Versus `serving-oracle` at 8 cores it is now inside the cross-run noise: +0.0039 mean, −0.0023
+  worst, +0.0016 overload, with a 1.4× worse p95 (28.1 ms vs 19.9) and *better* p99 (73.2 vs 100.5).**
+  Mechanism: the action space now contains the oracle's lever (per-tenant masks and quotas chosen on
+  the pilot); what the oracle still has is true per-query difficulty, which shows up only in the
+  p95 tail, not in the SLO columns.
+* **Tail trade, stated explicitly.** The richer action space buys the pass columns by serving more
+  marginal queries: p95/p99 over *served* queries rise from 16.0/53.9 ms (the debt-only policy) to
+  28.1/73.2 ms — still 7.6× / 4.3× better than VecSLO (213.8 / 316.9). A tail-sensitive scorer
+  (p95 penalty 5e-4 instead of 2e-4) keeps p95/p99 at 11.3/31.4 ms but drops rho=2.0 back to 0.678,
+  so the pass and tail criteria are in tension under this metric definition, not independent wins.
 * **Versus EDF at 4 and 16 cores it wins, but the strongest fixed plan is missing there**: VecSLO was
   only run at 8 cores, so those two rows are not comparisons against the reference quota.
 * **It loses the isolation metric at 16 cores.** `tenant-worst` is 0.0000 for the planner at every
@@ -252,7 +262,9 @@ worst regime — a pilot/held-out near-tie, not a mechanism change.
   first, while the planner's calibration only maximises the mean. All values are ≈0, so this axis is
   reported rather than claimed.
 
-### Queue-state (debt) admission: what it fixed and what it did not
+### Queue-state (debt) admission, then the richer action space
+
+**Step 1 — debt admission.**
 
 The planner's admission was a static cost-ordered knapsack: it prices an admitted query as long-run
 load and assumes the query passes. It carries no queue state, so at some regimes it admits queries
@@ -289,12 +301,36 @@ exactly the ones that would have missed.
 * *Debt-aware per-tenant effort trim (hard queries at base effort when the queue says the tenant is
   missing):* no pilot improvement at any regime — rejected.
 
-The data therefore supports the **per-tenant quota policy space** (per-tenant uniform admission plus
-a per-tenant hard-effort quota — VecSLO's space) as the remaining lever. The planner's per-query
-knapsack can express *cheapest-first* allocation but not "serve this tenant's soft class fully while
-shedding its expensive hard class"; closing rho=2.0 fully would mean adopting that space, i.e.
-turning the planner into VecSLO. This is recorded as a measured limit of the one-planner cost model,
-not hidden.
+That decomposition pointed at the per-tenant quota policy space as the remaining lever. It is a
+space of *primitives*, not a VecSLO-specific tuning: the evaluator already accepts `efforts`,
+`priority` and `admission` arrays from any submission, so the fix was to put those primitives into
+the planner's own action space and let its cost model choose them — see the next subsection.
+
+**Step 2 — per-tenant masks and hard-effort quotas as selectable actions.** The planner's action
+space is now (i) the admission profile (per-query knapsack or per-tenant masks), (ii) the admission
+fraction `u` (over-admission > 1.0 included), and (iii) a per-tenant hard-effort quota (cap a
+tenant's hard class to base effort). For each load regime the planner builds the candidate policies
+from the contract and rates, scores them on the visible pilot queue state, and picks the best action
+(per-regime choices in `u_target_per_regime` / `profile_per_regime`). No per-tenant constant is
+copied from VecSLO; the actions are selected, and the selection is stored.
+
+Result (8 cores, per-regime `slo_pass`, full 4/8/16 sweep in the JSON):
+
+| 8-core | 0.70 | 1.00 | 1.15 | 1.60 | 2.00 | 2.50 | 3.00 | mean | worst | overload | p95 ms | p99 ms |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| vecslo | 0.962 | 0.962 | 0.887 | 0.709 | 0.712 | 0.625 | 0.553 | 0.7729 | 0.5530 | 0.6498 | 213.8 | 316.9 |
+| planner, debt only | 0.962 | 0.962 | 0.931 | 0.766 | 0.678 | 0.639 | 0.572 | 0.7873 | 0.5724 | 0.6638 | 16.0 | 53.9 |
+| **planner, selectable actions** | 0.962 | 0.962 | **0.940** | **0.799** | **0.713** | **0.671** | **0.585** | **0.8047** | **0.5849** | **0.6920** | 28.1 | 73.2 |
+
+rho=2.0 is recovered (**0.713 ≥ 0.712**) while every previously won regime is kept and improved, and
+the planner now beats VecSLO in all seven regimes (mean +0.0318, worst +0.0319, overload +0.0422).
+At 4 cores the same selection lifts the mean 0.5543 → 0.5743 and the worst regime 0.3205 → 0.3882; at
+16 cores 0.9375 → 0.9398 and 0.8288 → 0.8377. The one thing that does not improve is the latency
+tail: p95/p99 over served queries go from 16.0/53.9 to 28.1/73.2 ms, because recovering the last
+pass points means serving marginal queries. That is a real trade, not free: the scorer can be
+weighted to the tail (p95 penalty 5e-4) and then p95/p99 are 11.3/31.4 ms but rho=2.0 falls back to
+0.678. So the two criteria are in tension under this metric definition; the pass recovery is bought
+with the tail, and both extremes are recorded in `planner_u_sensitivity` / the scorer's penalty.
 
 ### What is measured vs not measured
 

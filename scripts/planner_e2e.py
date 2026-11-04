@@ -400,15 +400,18 @@ def main_serving(args):
             res["serving-vecslo"] = _serving_row(m)
             log(f"  cores={cores} serving-vecslo     pass={m['slo_pass']:.4f} "
                 f"worst={m['slo_pass_worst']:.4f}", t0)
-        # the planner: one scalar calibrated on the visible pilot trace, nothing per tenant
+        # the planner: per-regime action selection (admission profile, admission fraction,
+        # per-tenant hard-effort quota) on the visible pilot trace; no per-tenant constant
         pol = planner.ServingPlanner().plan(pilot_c)
         m = core.eval_serving(pol, wl_c)
         res["planner"] = _serving_row(m)
         res["planner"]["u_target"] = pol["u_target"]
-        res["planner"]["calibration"] = pol["calibration"]
+        res["planner"]["u_target_per_regime"] = pol.get("u_target_per_regime")
+        res["planner"]["profile_per_regime"] = pol.get("profile_per_regime")
+        res["planner"]["calibration"] = pol.get("calibration", [])
         log(f"  cores={cores} planner            pass={m['slo_pass']:.4f} "
             f"worst={m['slo_pass_worst']:.4f} overload={m['slo_pass_overload']:.4f} "
-            f"u={pol['u_target']:.2f}", t0)
+            f"u={pol['u_target']:.3f} profiles={pol.get('profile_per_regime')}", t0)
         # marginal value of the calibrated scalar: the whole sensitivity curve
         sens = []
         for u in planner.ServingPlanner.U_GRID:

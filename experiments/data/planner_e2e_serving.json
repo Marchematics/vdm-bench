@@ -261,15 +261,15 @@
     }
    },
    "planner": {
-    "slo_pass": 0.5543303571428572,
-    "slo_pass_worst": 0.3205,
-    "slo_pass_overload": 0.43228125000000006,
+    "slo_pass": 0.5743392857142858,
+    "slo_pass_worst": 0.3881875,
+    "slo_pass_overload": 0.45976562500000007,
     "tenant_pass_worst": 0.0,
-    "p95_latency": 21.74487100328718,
-    "p99_latency": 45.80776173727853,
-    "recall_slo": 1.0,
-    "goodput_qps": 2889.0859581565883,
-    "served_frac": 0.5575089285714285,
+    "p95_latency": 55.67102418627058,
+    "p99_latency": 105.42931311471122,
+    "recall_slo": 0.9889107142857142,
+    "goodput_qps": 3058.4520616137775,
+    "served_frac": 0.5841964285714285,
     "per_regime": {
      "rhos": [
       0.7,
@@ -281,16 +281,16 @@
       3.0
      ],
      "slo_pass": [
-      0.8261875,
-      0.6514375,
+      0.83825,
+      0.6695,
       0.6735625,
-      0.548625,
-      0.463125,
-      0.396875,
-      0.3205
+      0.5264375,
+      0.5001875,
+      0.42425,
+      0.3881875
      ],
      "worst_tenant_pass": [
-      0.01,
+      0.339,
       0.0,
       0.0,
       0.0,
@@ -299,66 +299,90 @@
       0.0
      ],
      "served_frac": [
-      0.835875,
-      0.66225,
+      0.83975,
+      0.6805,
       0.6735625,
-      0.5486875,
-      0.4648125,
-      0.396875,
-      0.3205
+      0.5829375,
+      0.5001875,
+      0.42425,
+      0.3881875
      ]
     },
-    "u_target": 0.94,
+    "u_target": 0.95,
+    "u_target_per_regime": [
+     0.94,
+     0.85,
+     0.94,
+     1.04,
+     0.98,
+     1.0,
+     0.95
+    ],
+    "profile_per_regime": [
+     "per_query",
+     "per_query",
+     "per_query",
+     "per_query",
+     "per_tenant",
+     "per_query",
+     "per_tenant"
+    ],
     "calibration": [
      {
-      "u": 0.7,
-      "pilot_slo_pass": 0.4575267857142857,
-      "pilot_worst": 0.1804375
-     },
-     {
-      "u": 0.8,
-      "pilot_slo_pass": 0.5082767857142857,
-      "pilot_worst": 0.2461875
-     },
-     {
-      "u": 0.85,
-      "pilot_slo_pass": 0.5307410714285714,
-      "pilot_worst": 0.278875
-     },
-     {
-      "u": 0.9,
-      "pilot_slo_pass": 0.5425892857142858,
-      "pilot_worst": 0.305125
-     },
-     {
+      "regime": 0,
+      "rho": 0.7,
       "u": 0.94,
-      "pilot_slo_pass": 0.5561607142857142,
-      "pilot_worst": 0.3205
+      "profile": "per_query",
+      "pilot_slo_pass": 0.83975,
+      "pilot_worst_tenant": 0.339
      },
      {
-      "u": 0.95,
-      "pilot_slo_pass": 0.5455,
-      "pilot_worst": 0.3243125
+      "regime": 1,
+      "rho": 1.0,
+      "u": 0.85,
+      "profile": "per_query",
+      "pilot_slo_pass": 0.669875,
+      "pilot_worst_tenant": 0.0
      },
      {
-      "u": 0.96,
-      "pilot_slo_pass": 0.5378392857142857,
-      "pilot_worst": 0.328125
+      "regime": 2,
+      "rho": 1.15,
+      "u": 0.94,
+      "profile": "per_query",
+      "pilot_slo_pass": 0.6735625,
+      "pilot_worst_tenant": 0.0
      },
      {
-      "u": 0.97,
-      "pilot_slo_pass": 0.5373482142857142,
-      "pilot_worst": 0.332
+      "regime": 3,
+      "rho": 1.6,
+      "u": 1.04,
+      "profile": "per_query",
+      "pilot_slo_pass": 0.5829375,
+      "pilot_worst_tenant": 0.0
      },
      {
+      "regime": 4,
+      "rho": 2.0,
       "u": 0.98,
-      "pilot_slo_pass": 0.5385714285714285,
-      "pilot_worst": 0.3358125
+      "profile": "per_tenant",
+      "pilot_slo_pass": 0.5001875,
+      "pilot_worst_tenant": 0.0
      },
      {
-      "u": 0.99,
-      "pilot_slo_pass": 0.5405535714285714,
-      "pilot_worst": 0.339625
+      "regime": 5,
+      "rho": 2.5,
+      "u": 1.0,
+      "profile": "per_query",
+      "pilot_slo_pass": 0.42425,
+      "pilot_worst_tenant": 0.0
+     },
+     {
+      "regime": 6,
+      "rho": 3.0,
+      "u": 0.95,
+      "profile": "per_tenant",
+      "pilot_slo_pass": 0.3881875,
+      "pilot_worst_tenant": 0.0
      }
     ]
    },
@@ -422,6 +446,60 @@
      "slo_pass": 0.5329732142857143,
      "slo_pass_worst": 0.339625,
      "slo_pass_overload": 0.428421875
+    },
+    {
+     "u": 1.0,
+     "slo_pass": 0.5355000000000001,
+     "slo_pass_worst": 0.3435,
+     "slo_pass_overload": 0.4316875
+    },
+    {
+     "u": 1.005,
+     "slo_pass": 0.536857142857143,
+     "slo_pass_worst": 0.345375,
+     "slo_pass_overload": 0.43353125
+    },
+    {
+     "u": 1.01,
+     "slo_pass": 0.5382142857142856,
+     "slo_pass_worst": 0.3473125,
+     "slo_pass_overload": 0.43537499999999996
+    },
+    {
+     "u": 1.015,
+     "slo_pass": 0.5397232142857143,
+     "slo_pass_worst": 0.34925,
+     "slo_pass_overload": 0.43771875000000005
+    },
+    {
+     "u": 1.02,
+     "slo_pass": 0.5418214285714287,
+     "slo_pass_worst": 0.351125,
+     "slo_pass_overload": 0.44067187500000005
+    },
+    {
+     "u": 1.025,
+     "slo_pass": 0.5431607142857143,
+     "slo_pass_worst": 0.3530625,
+     "slo_pass_overload": 0.44262500000000005
+    },
+    {
+     "u": 1.03,
+     "slo_pass": 0.5387321428571429,
+     "slo_pass_worst": 0.355,
+     "slo_pass_overload": 0.4445
+    },
+    {
+     "u": 1.035,
+     "slo_pass": 0.5406875,
+     "slo_pass_worst": 0.356875,
+     "slo_pass_overload": 0.446234375
+    },
+    {
+     "u": 1.04,
+     "slo_pass": 0.5403660714285714,
+     "slo_pass_worst": 0.3588125,
+     "slo_pass_overload": 0.445859375
     }
    ]
   },
@@ -672,15 +750,15 @@
     }
    },
    "planner": {
-    "slo_pass": 0.7872678571428572,
-    "slo_pass_worst": 0.572375,
-    "slo_pass_overload": 0.6637968750000001,
+    "slo_pass": 0.8046517857142856,
+    "slo_pass_worst": 0.5849375,
+    "slo_pass_overload": 0.692015625,
     "tenant_pass_worst": 0.0,
-    "p95_latency": 15.99996566772461,
-    "p99_latency": 53.89284488133022,
+    "p95_latency": 28.1232784816197,
+    "p99_latency": 73.17020034790039,
     "recall_slo": 1.0,
-    "goodput_qps": 4312.99407926158,
-    "served_frac": 0.7911696428571429,
+    "goodput_qps": 4438.2988165157885,
+    "served_frac": 0.8079196428571428,
     "per_regime": {
      "rhos": [
       0.7,
@@ -694,16 +772,16 @@
      "slo_pass": [
       0.9624375,
       0.9624375,
-      0.9308125,
-      0.7658125,
-      0.677625,
-      0.639375,
-      0.572375
+      0.939625,
+      0.799125,
+      0.7128125,
+      0.6711875,
+      0.5849375
      ],
      "worst_tenant_pass": [
       0.6995,
       0.6995,
-      0.6955,
+      0.697,
       0.0,
       0.0,
       0.0,
@@ -712,64 +790,88 @@
      "served_frac": [
       0.9624375,
       0.9624375,
-      0.9335625,
-      0.7881875,
-      0.6798125,
-      0.639375,
-      0.572375
+      0.9624375,
+      0.799125,
+      0.712875,
+      0.6711875,
+      0.5849375
      ]
     },
-    "u_target": 0.97,
+    "u_target": 1.005,
+    "u_target_per_regime": [
+     0.7,
+     0.94,
+     1.03,
+     0.95,
+     1.035,
+     1.04,
+     1.005
+    ],
+    "profile_per_regime": [
+     "per_query",
+     "per_query",
+     "per_query",
+     "per_query",
+     "per_tenant",
+     "per_query",
+     "per_query"
+    ],
     "calibration": [
      {
+      "regime": 0,
+      "rho": 0.7,
       "u": 0.7,
-      "pilot_slo_pass": 0.7063125,
-      "pilot_worst": 0.4771875
+      "profile": "per_query",
+      "pilot_slo_pass": 0.9624375,
+      "pilot_worst_tenant": 0.6995
      },
      {
-      "u": 0.8,
-      "pilot_slo_pass": 0.7484821428571429,
-      "pilot_worst": 0.51225
-     },
-     {
-      "u": 0.85,
-      "pilot_slo_pass": 0.7632678571428572,
-      "pilot_worst": 0.52975
-     },
-     {
-      "u": 0.9,
-      "pilot_slo_pass": 0.7771160714285715,
-      "pilot_worst": 0.54725
-     },
-     {
+      "regime": 1,
+      "rho": 1.0,
       "u": 0.94,
-      "pilot_slo_pass": 0.7864732142857144,
-      "pilot_worst": 0.561625
+      "profile": "per_query",
+      "pilot_slo_pass": 0.962375,
+      "pilot_worst_tenant": 0.699
      },
      {
+      "regime": 2,
+      "rho": 1.15,
+      "u": 1.03,
+      "profile": "per_query",
+      "pilot_slo_pass": 0.939875,
+      "pilot_worst_tenant": 0.6985
+     },
+     {
+      "regime": 3,
+      "rho": 1.6,
       "u": 0.95,
-      "pilot_slo_pass": 0.7888482142857143,
-      "pilot_worst": 0.56525
+      "profile": "per_query",
+      "pilot_slo_pass": 0.799125,
+      "pilot_worst_tenant": 0.0
      },
      {
-      "u": 0.96,
-      "pilot_slo_pass": 0.7904732142857142,
-      "pilot_worst": 0.5688125
+      "regime": 4,
+      "rho": 2.0,
+      "u": 1.035,
+      "profile": "per_tenant",
+      "pilot_slo_pass": 0.7090625,
+      "pilot_worst_tenant": 0.0
      },
      {
-      "u": 0.97,
-      "pilot_slo_pass": 0.7911607142857143,
-      "pilot_worst": 0.572375
+      "regime": 5,
+      "rho": 2.5,
+      "u": 1.04,
+      "profile": "per_query",
+      "pilot_slo_pass": 0.657375,
+      "pilot_worst_tenant": 0.0
      },
      {
-      "u": 0.98,
-      "pilot_slo_pass": 0.7873214285714285,
-      "pilot_worst": 0.576
-     },
-     {
-      "u": 0.99,
-      "pilot_slo_pass": 0.788767857142857,
-      "pilot_worst": 0.5795625
+      "regime": 6,
+      "rho": 3.0,
+      "u": 1.005,
+      "profile": "per_query",
+      "pilot_slo_pass": 0.5849375,
+      "pilot_worst_tenant": 0.0
      }
     ]
    },
@@ -833,6 +935,60 @@
      "slo_pass": 0.7869821428571429,
      "slo_pass_worst": 0.5795625,
      "slo_pass_overload": 0.66178125
+    },
+    {
+     "u": 1.0,
+     "slo_pass": 0.7889910714285715,
+     "slo_pass_worst": 0.5831875,
+     "slo_pass_overload": 0.665234375
+    },
+    {
+     "u": 1.005,
+     "slo_pass": 0.7897142857142857,
+     "slo_pass_worst": 0.5849375,
+     "slo_pass_overload": 0.6665156250000001
+    },
+    {
+     "u": 1.01,
+     "slo_pass": 0.7906160714285715,
+     "slo_pass_worst": 0.58675,
+     "slo_pass_overload": 0.66809375
+    },
+    {
+     "u": 1.015,
+     "slo_pass": 0.791330357142857,
+     "slo_pass_worst": 0.5885,
+     "slo_pass_overload": 0.6693437499999999
+    },
+    {
+     "u": 1.02,
+     "slo_pass": 0.7918214285714286,
+     "slo_pass_worst": 0.59025,
+     "slo_pass_overload": 0.670203125
+    },
+    {
+     "u": 1.025,
+     "slo_pass": 0.793517857142857,
+     "slo_pass_worst": 0.5919375,
+     "slo_pass_overload": 0.673171875
+    },
+    {
+     "u": 1.03,
+     "slo_pass": 0.7877857142857143,
+     "slo_pass_worst": 0.54475,
+     "slo_pass_overload": 0.6625
+    },
+    {
+     "u": 1.035,
+     "slo_pass": 0.7894910714285714,
+     "slo_pass_worst": 0.55175,
+     "slo_pass_overload": 0.6654843750000001
+    },
+    {
+     "u": 1.04,
+     "slo_pass": 0.7846964285714285,
+     "slo_pass_worst": 0.5159375,
+     "slo_pass_overload": 0.6570937500000001
     }
    ]
   },
@@ -1034,15 +1190,15 @@
     }
    },
    "planner": {
-    "slo_pass": 0.9374821428571428,
-    "slo_pass_worst": 0.8288125,
-    "slo_pass_overload": 0.918765625,
-    "tenant_pass_worst": 0.0,
-    "p95_latency": 4.767822299684797,
-    "p99_latency": 10.1887389591762,
-    "recall_slo": 1.0,
-    "goodput_qps": 5511.427160025435,
-    "served_frac": 0.9374821428571428,
+    "slo_pass": 0.9397767857142857,
+    "slo_pass_worst": 0.8376875,
+    "slo_pass_overload": 0.92278125,
+    "tenant_pass_worst": 0.6205,
+    "p95_latency": 5.442491224833897,
+    "p99_latency": 26.05265290396554,
+    "recall_slo": 0.9889553571428572,
+    "goodput_qps": 5533.744577675735,
+    "served_frac": 0.9397767857142857,
     "per_regime": {
      "rhos": [
       0.7,
@@ -1059,8 +1215,8 @@
       0.9624375,
       0.9624375,
       0.9624375,
-      0.921375,
-      0.8288125
+      0.9285625,
+      0.8376875
      ],
      "worst_tenant_pass": [
       0.6995,
@@ -1068,8 +1224,8 @@
       0.6995,
       0.6995,
       0.6995,
-      0.6715,
-      0.0
+      0.6995,
+      0.6205
      ],
      "served_frac": [
       0.9624375,
@@ -1077,61 +1233,85 @@
       0.9624375,
       0.9624375,
       0.9624375,
-      0.921375,
-      0.8288125
+      0.9285625,
+      0.8376875
      ]
     },
-    "u_target": 0.99,
+    "u_target": 1.005,
+    "u_target_per_regime": [
+     0.7,
+     0.7,
+     0.7,
+     0.8,
+     0.94,
+     1.01,
+     1.005
+    ],
+    "profile_per_regime": [
+     "per_query",
+     "per_query",
+     "per_query",
+     "per_query",
+     "per_query",
+     "per_query",
+     "per_query"
+    ],
     "calibration": [
      {
+      "regime": 0,
+      "rho": 0.7,
       "u": 0.7,
-      "pilot_slo_pass": 0.8832500000000001,
-      "pilot_worst": 0.7040625
+      "profile": "per_query",
+      "pilot_slo_pass": 0.9624375,
+      "pilot_worst_tenant": 0.6995
      },
      {
+      "regime": 1,
+      "rho": 1.0,
+      "u": 0.7,
+      "profile": "per_query",
+      "pilot_slo_pass": 0.9624375,
+      "pilot_worst_tenant": 0.6995
+     },
+     {
+      "regime": 2,
+      "rho": 1.15,
+      "u": 0.7,
+      "profile": "per_query",
+      "pilot_slo_pass": 0.9624375,
+      "pilot_worst_tenant": 0.6995
+     },
+     {
+      "regime": 3,
+      "rho": 1.6,
       "u": 0.8,
-      "pilot_slo_pass": 0.9064821428571428,
-      "pilot_worst": 0.747625
+      "profile": "per_query",
+      "pilot_slo_pass": 0.9624375,
+      "pilot_worst_tenant": 0.6995
      },
      {
-      "u": 0.85,
-      "pilot_slo_pass": 0.9157053571428572,
-      "pilot_worst": 0.7693125
-     },
-     {
-      "u": 0.9,
-      "pilot_slo_pass": 0.9250892857142856,
-      "pilot_worst": 0.790875
-     },
-     {
+      "regime": 4,
+      "rho": 2.0,
       "u": 0.94,
-      "pilot_slo_pass": 0.9305803571428571,
-      "pilot_worst": 0.80725
+      "profile": "per_query",
+      "pilot_slo_pass": 0.9624375,
+      "pilot_worst_tenant": 0.6995
      },
      {
-      "u": 0.95,
-      "pilot_slo_pass": 0.9319642857142857,
-      "pilot_worst": 0.8115625
+      "regime": 5,
+      "rho": 2.5,
+      "u": 1.01,
+      "profile": "per_query",
+      "pilot_slo_pass": 0.928125,
+      "pilot_worst_tenant": 0.6995
      },
      {
-      "u": 0.96,
-      "pilot_slo_pass": 0.9333392857142856,
-      "pilot_worst": 0.815875
-     },
-     {
-      "u": 0.97,
-      "pilot_slo_pass": 0.9347232142857143,
-      "pilot_worst": 0.8201875
-     },
-     {
-      "u": 0.98,
-      "pilot_slo_pass": 0.9360982142857142,
-      "pilot_worst": 0.8245
-     },
-     {
-      "u": 0.99,
-      "pilot_slo_pass": 0.9374821428571428,
-      "pilot_worst": 0.8288125
+      "regime": 6,
+      "rho": 3.0,
+      "u": 1.005,
+      "profile": "per_query",
+      "pilot_slo_pass": 0.8376875,
+      "pilot_worst_tenant": 0.6205
      }
     ]
    },
@@ -1195,6 +1375,60 @@
      "slo_pass": 0.9374821428571428,
      "slo_pass_worst": 0.8288125,
      "slo_pass_overload": 0.918765625
+    },
+    {
+     "u": 1.0,
+     "slo_pass": 0.9387232142857141,
+     "slo_pass_worst": 0.833125,
+     "slo_pass_overload": 0.9209375
+    },
+    {
+     "u": 1.005,
+     "slo_pass": 0.9392232142857143,
+     "slo_pass_worst": 0.83525,
+     "slo_pass_overload": 0.9218124999999999
+    },
+    {
+     "u": 1.01,
+     "slo_pass": 0.9398660714285713,
+     "slo_pass_worst": 0.8383125,
+     "slo_pass_overload": 0.9229375
+    },
+    {
+     "u": 1.015,
+     "slo_pass": 0.9393482142857142,
+     "slo_pass_worst": 0.8384375,
+     "slo_pass_overload": 0.92203125
+    },
+    {
+     "u": 1.02,
+     "slo_pass": 0.9381071428571428,
+     "slo_pass_worst": 0.830375,
+     "slo_pass_overload": 0.919859375
+    },
+    {
+     "u": 1.025,
+     "slo_pass": 0.9396249999999998,
+     "slo_pass_worst": 0.840375,
+     "slo_pass_overload": 0.922515625
+    },
+    {
+     "u": 1.03,
+     "slo_pass": 0.9398571428571428,
+     "slo_pass_worst": 0.842625,
+     "slo_pass_overload": 0.922921875
+    },
+    {
+     "u": 1.035,
+     "slo_pass": 0.9402410714285713,
+     "slo_pass_worst": 0.8448125,
+     "slo_pass_overload": 0.92359375
+    },
+    {
+     "u": 1.04,
+     "slo_pass": 0.9402142857142858,
+     "slo_pass_worst": 0.8445625,
+     "slo_pass_overload": 0.9235468749999999
     }
    ]
   }

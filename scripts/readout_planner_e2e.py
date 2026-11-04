@@ -145,13 +145,18 @@ def readout_serving(path):
               f"dworst={p['slo_pass_worst']-b['slo_pass_worst']:+.4f} "
               f"doverload={p['slo_pass_overload']-b['slo_pass_overload']:+.4f} | "
               f"u_chosen={cd['planner']['u_target']}")
+        u_per = cd["planner"].get("u_target_per_regime")
+        pr_per = cd["planner"].get("profile_per_regime")
+        if u_per is not None:
+            print(f"           per-regime actions (u): {[round(x,3) for x in u_per]}")
+        if pr_per is not None:
+            print(f"           per-regime actions (profile): {pr_per}")
         grid = {r["u"]: r for r in cd["planner_u_sensitivity"]}
         u_mean = max(grid, key=lambda u: grid[u]["slo_pass"])
         u_worst = max(grid, key=lambda u: grid[u]["slo_pass_worst"])
-        print(f"           eval-grid argmax: mean u={u_mean} ({grid[u_mean]['slo_pass']:.4f}), "
-              f"worst u={u_worst} ({grid[u_worst]['slo_pass_worst']:.4f}); "
-              f"at u={cd['planner']['u_target']}: mean={grid[cd['planner']['u_target']]['slo_pass']:.4f} "
-              f"worst={grid[cd['planner']['u_target']]['slo_pass_worst']:.4f}")
+        print(f"           eval-grid argmax (single-u policies): mean u={u_mean} "
+              f"({grid[u_mean]['slo_pass']:.4f}), worst u={u_worst} "
+              f"({grid[u_worst]['slo_pass_worst']:.4f})")
 
 
 def main():
