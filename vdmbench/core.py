@@ -687,6 +687,40 @@ def build_serving(seed=0, n_tenants=8, n_per_tenant=2000, rhos=SERVING_DEFAULT_R
                         "p50": SURFACE_P50.tolist()}}
 
 
+def _resolve_admission(arr, admit, admit_windows=None, window_edges=None):
+    """Resolve a static (T, nq) admission plus an optional time-windowed mask.
+
+    ``admit_windows`` has shape (T, nq, W): column ``w`` says whether the query is admitted
+    when its arrival falls in window ``w``.  ``window_edges`` has shape (W+1,) and is
+    **trace-relative**: values in [0, 1] are quantile fractions of the arrival times of the
+    trace being scored (recommended — the same policy then applies to the pilot and the
+    held-out trace); values outside [0, 1] are taken as absolute seconds.  Window ``w`` covers
+    ``edge[w] <= t < edge[w+1]`` (last edge inclusive).  The effective admission is the static
+    mask AND the selected window column, so a submission can keep the static mask and only
+    *tighten* it per arrival window.  Without ``admit_windows`` the static mask is returned
+    unchanged (backward compatible).
+    """
+    if admit_windows is None:
+        return admit
+    aw = np.asarray(admit_windows, dtype=bool)
+    T, nq = arr.shape
+    if aw.ndim != 3 or aw.shape[0] != T or aw.shape[1] != nq:
+        raise ValueError(f"admission_windows shape {aw.shape} != {(T, nq, aw.shape[2] if aw.ndim == 3 else 'W')}")
+    W = aw.shape[2]
+    edges = np.asarray(window_edges, dtype=np.float64).ravel()
+    if edges.shape != (W + 1,):
+        raise ValueError(f"window_edges shape {edges.shape} != ({W + 1},)")
+    arr = np.asarray(arr, dtype=np.float64)
+    if edges[0] >= 0.0 and edges[-1] <= 1.0:
+        edges = np.quantile(arr, np.clip(edges, 0.0, 1.0))       # trace-relative edges
+    w = np.searchsorted(edges, arr, side="right") - 1
+    w = np.clip(w, 0, W - 1)
+    sel = np.take_along_axis(aw, w[:, :, None], axis=2)[:, :, 0]
+    if admit is None:
+        return sel
+    return np.asarray(admit, dtype=bool) & sel
+
+
 def _simulate_partitioned(arr, service, cores, priority=None, reservation=None, admit=None):
     """Per-tenant core allocation + non-preemptive priority within each tenant.
 
@@ -749,7 +783,7 @@ def _simulate_partitioned(arr, service, cores, priority=None, reservation=None, 
     return lat, alloc
 
 
-def _simulate(arr, service, cores, priority=None, admit=None):
+def _simulate(arr, service, cores, priority=None, admit=None, admit_windows=None, window_edges=None):
     """Non-preemptive multi-core queue, FCFS or priority order, shared core pool.
 
     ``arr`` (T, nq) arrival seconds; ``service`` (T, nq) ms; ``priority`` (T, nq) higher is
@@ -764,6 +798,7 @@ def _simulate(arr, service, cores, priority=None, admit=None):
     T, nq = arr.shape
     lat = np.zeros((T, nq), dtype=np.float32)
     pri = np.zeros((T, nq), dtype=np.float64) if priority is None else np.asarray(priority, dtype=np.float64)
+    admit = _resolve_admission(arr, admit, admit_windows, window_edges)
     flat = [(float(arr[i, j]), int(i), int(j)) for i in range(T) for j in range(nq)
             if admit is None or bool(admit[i][j])]
     flat.sort()
@@ -829,7 +864,8 @@ def _serving_traces(wl):
     return traces
 
 
-def eval_serving_regime(wl, efforts, priority=None, admission=None, r=0, reservation=None):
+def eval_serving_regime(wl, efforts, priority=None, admission=None, r=0, reservation=None,
+                        admission_windows=None, window_edges=None):
     """Score one load regime of a serving policy.
 
     Public helper: submissions use it to tune a policy on the *pilot* trace (pass ``wl``
@@ -851,6 +887,11 @@ def eval_serving_regime(wl, efforts, priority=None, admission=None, r=0, reserva
     adm = None if admission is None else np.asarray(admission, dtype=bool)
     deadline, recall_req = _serving_contract(wl)
     arr = _serving_traces(wl)[int(r)]
+    if admission_windows is not None:
+        edges = window_edges
+        if edges is not None and np.asarray(edges).ndim == 2:
+            edges = np.asarray(edges)[int(r)]
+        adm = _resolve_admission(arr, adm, admission_windows, edges)
     if reservation is None:
         lat = _simulate(arr, service, int(wl["cores"]), pri, adm)
     else:
@@ -902,14 +943,44 @@ def _policy_array(pred, key, dtype, nT, nq, nR):
     raise ValueError(f"{key} must be 2-D (T,nq) or 3-D (R,T,nq), got shape {a.shape}")
 
 
+def _policy_windows(pred, nT, nq, nR):
+    """Read optional ``admission_windows``: (T, nq, W) or load-indexed (R, T, nq, W)."""
+    if "admission_windows" not in pred or pred["admission_windows"] is None:
+        return None
+    a = np.asarray(pred["admission_windows"], dtype=bool)
+    if a.ndim == 3:
+        if a.shape[:2] != (nT, nq):
+            raise ValueError(f"admission_windows shape {a.shape} != (T,nq,W) or (R,T,nq,W)")
+        return a
+    if a.ndim == 4:
+        if a.shape[:3] != (nR, nT, nq):
+            raise ValueError(f"admission_windows shape {a.shape} != (T,nq,W) or (R,T,nq,W)")
+        return a
+    raise ValueError(f"admission_windows must be 3-D (T,nq,W) or 4-D (R,T,nq,W), got {a.shape}")
+
+
+def _policy_edges(pred, nR):
+    """Read optional ``window_edges``: (W+1,) shared or (R, W+1) load-indexed, seconds."""
+    if "window_edges" not in pred or pred["window_edges"] is None:
+        return None
+    a = np.asarray(pred["window_edges"], dtype=np.float64)
+    if a.ndim == 1:
+        return a
+    if a.ndim == 2 and a.shape[0] == nR:
+        return a
+    raise ValueError(f"window_edges must be 1-D (W+1,) or 2-D (R,W+1), got {a.shape}")
+
+
 def eval_serving(pred, wl):
     """Score a serving submission across every load regime in the workload.
 
     A submission returns ``efforts`` (T, nq) and, optionally, ``priority`` (T, nq) where
     *higher* priority is served first (deadline-aware scheduling, e.g. EDF),
     ``admission`` (T, nq) of queries that are served at all (shed queries fail their
-    contract) and ``reservation`` (T,) of per-tenant core fractions summing to <= 1 (opt in
-    to the partitioned simulator). The array fields may instead be shaped (R, T, nq) and
+    contract), optionally ``admission_windows`` (T, nq, W) with ``window_edges`` (W+1,)
+    seconds to make admission depend on the arrival *window* (see README), and
+    ``reservation`` (T,) of per-tenant core fractions summing to <= 1 (opt in to the
+    partitioned simulator). The array fields may instead be shaped (R, T, nq) and
     the reservation (R, T), i.e. one policy per load regime — the load regime is public (the
     pilot trace ships with the workload), the held-out trace realisation is not.
 
@@ -928,6 +999,8 @@ def eval_serving(pred, wl):
             return {"error": "missing efforts"}
         pri = _policy_array(pred, "priority", np.float64, nT, nq, nR)
         adm = _policy_array(pred, "admission", bool, nT, nq, nR)
+        adm_w = _policy_windows(pred, nT, nq, nR)
+        w_edges = _policy_edges(pred, nR)
         res = _policy_vector(pred, "reservation", nT, nR)
     except ValueError as e:
         return {"error": str(e)}
@@ -937,8 +1010,10 @@ def eval_serving(pred, wl):
         e = efforts[r] if efforts.ndim == 3 else efforts
         p = None if pri is None else (pri[r] if pri.ndim == 3 else pri)
         a = None if adm is None else (adm[r] if adm.ndim == 3 else adm)
+        aw = None if adm_w is None else (adm_w[r] if adm_w.ndim == 4 else adm_w)
+        we = None if w_edges is None else (w_edges[r] if w_edges.ndim == 2 else w_edges)
         rv = None if res is None else (res[r] if res.ndim == 2 else res)
-        m = eval_serving_regime(wl, e, p, a, r, rv)
+        m = eval_serving_regime(wl, e, p, a, r, rv, admission_windows=aw, window_edges=we)
         passes.append(m["slo_pass"])
         per_tenant.append(m["tenant_pass"])
         p95s.append(m["p95_latency"])

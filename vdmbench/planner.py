@@ -776,6 +776,103 @@ class ServingPlanner:
                                     feasible, adm, budget, rounds=debt_rounds)
         return effort, -deadline, adm
 
+    @staticmethod
+    def _window_edges(arr, W):
+        """W equal-*time* windows on the absolute clock, in seconds.
+
+        Absolute edges (not quantiles) keep a query in the same window on the pilot and the
+        held-out trace: its j-th arrival time is pinned by its tenant's rate in both traces,
+        whereas a pooled arrival quantile moves when tenants interleave differently.  The
+        evaluator treats values > 1 as seconds (values in [0, 1] would be trace quantiles).
+        """
+        span = float(np.max(arr)) + 1e-6
+        return np.linspace(0.0, span, W + 1)
+
+    @staticmethod
+    def _upsample_windows(windows, edges, W_out):
+        """Refine W equal-count windows to W_out (W_out a multiple of W), same admission."""
+        W = windows.shape[2]
+        if W == W_out:
+            return windows, edges
+        reps = W_out // W
+        out = np.repeat(windows, reps, axis=2)
+        return out, np.linspace(0.0, 1.0, W_out + 1)
+
+    def _window_policy(self, wl, rates, r, u, W, debt_rounds=2):
+        """Time-windowed admission: per arrival window, admit the cheapest queries that fit the
+        window's share of the capacity budget, then shed the ones the pilot queue predicts will
+        miss and refill each window.  Returns (effort, priority, static admission,
+        admission_windows (T,nq,W), window_edges (W+1,))."""
+        T, nq = wl["hard"].shape
+        cores = int(wl["cores"])
+        cap = cores * 1000.0
+        effort, service, _, feasible, deadline, _ = self._effort_and_service(wl)
+        arr = np.asarray(wl["arrival"][r], dtype=np.float64)
+        edges = self._window_edges(arr, W)               # equal-time edges, seconds
+        q_edges = np.maximum.accumulate(np.asarray(edges, dtype=np.float64)
+                                        + np.arange(W + 1) * 1e-9)
+        lo = np.clip(np.searchsorted(q_edges, arr, side="right") - 1, 0, W - 1)
+        w_load = np.where(feasible, np.asarray(rates[r])[:, None] * service / nq, 0.0)
+        svc = np.where(feasible, service, 0.0)
+        ii, jj = np.nonzero(feasible)
+        order = np.argsort(service[ii, jj], kind="stable")
+        pri = -deadline
+
+        def budgets():
+            return [u * cap * max(0.0, float(q_edges[w + 1] - q_edges[w])) for w in range(W)]
+
+        windows = np.zeros((T, nq, W), dtype=bool)
+        for w in range(W):
+            budget = budgets()[w]
+            load = 0.0
+            for k in order:
+                i, j = ii[k], jj[k]
+                if lo[i, j] != w:
+                    continue
+                if load + svc[i, j] <= budget:
+                    windows[i, j, w] = True
+                    load += svc[i, j]
+
+        def resolved():
+            return core._resolve_admission(arr, None, windows, edges)
+
+        best = windows.copy()
+        best_m = -1.0
+        for _ in range(max(1, int(debt_rounds)) if debt_rounds else 0):
+            lat = core._simulate(arr, service, cores, pri, resolved())
+            m = float((resolved() & (lat <= deadline)).mean())
+            if m > best_m:
+                best, best_m = windows.copy(), m
+            drop = resolved() & ~(lat <= deadline)
+            di, dj = np.nonzero(drop)
+            if not di.size:
+                break
+            windows[di, dj, lo[di, dj]] = False
+            for w in range(W):
+                budget = budgets()[w]
+                sel = np.nonzero(windows[:, :, w])
+                load = float(svc[sel[0], sel[1]].sum())
+                for k in order:
+                    i, j = ii[k], jj[k]
+                    if lo[i, j] != w or windows[i, j, w]:
+                        continue
+                    if load + svc[i, j] <= budget:
+                        windows[i, j, w] = True
+                        load += svc[i, j]
+        lat = core._simulate(arr, service, cores, pri, resolved())
+        m = float((resolved() & (lat <= deadline)).mean())
+        if m > best_m:
+            best = windows.copy()
+        return effort, pri, best.any(axis=2), best, edges
+
+    def _candidate(self, wl, rates, r, u, profile, debt_rounds=0):
+        if profile.startswith("per_window"):
+            W = 4 if profile == "per_window4" else 8
+            e, p, a, w, ed = self._window_policy(wl, rates, r, u, W, debt_rounds)
+            return e, p, a, w, ed
+        e, p, a = self._policy_for_regime(wl, rates, r, u, profile, debt_rounds=debt_rounds)
+        return e, p, a, None, None
+
     def _quota_refine(self, wl, rates, r, u, profile, effort, pri, adm, debt_rounds=2):
         """Per-tenant hard-effort quota action: cap one tenant's hard class to base effort.
 
@@ -840,7 +937,7 @@ class ServingPlanner:
             out_adm[r] = adm
         return {"efforts": out_eff, "priority": out_pri, "admission": out_adm}
 
-    def plan(self, wl, u_target=None, calibrate=True, debt_rounds=2):
+    def plan(self, wl, u_target=None, calibrate=True, debt_rounds=2, window_profiles=False):
         """Return a serving policy plus the calibration it chose.
 
         The planner's action space is (i) the admission profile -- per-query cost-ordered
@@ -877,37 +974,63 @@ class ServingPlanner:
         effs = np.zeros((nR, T, nq), dtype=np.int64)
         adms = np.zeros((nR, T, nq), dtype=bool)
         pri_all = np.zeros((nR, T, nq), dtype=np.float64)
+        win_list = [None] * nR
+        edge_list = [None] * nR
         choices = []
+        profiles = ("per_query", "per_tenant")
+        if window_profiles:
+            profiles = profiles + ("per_window4", "per_window8")
         for r in range(nR):
             best = None
-            for profile in ("per_query", "per_tenant"):
+            for profile in profiles:
                 for u in self.U_GRID:
-                    e, p, a = self._policy_for_regime(pilot, rates, r, float(u), profile,
-                                                      debt_rounds=0)
-                    m = core.eval_serving_regime(pilot, e, p, a, r)
+                    e, p, a, w, ed = self._candidate(pilot, rates, r, float(u), profile,
+                                                     debt_rounds=0)
+                    m = core.eval_serving_regime(pilot, e, p, a, r,
+                                                 admission_windows=w, window_edges=ed)
                     # Score: pass, with a small latency-tail penalty so the selected action does
                     # not buy marginal passes by admitting queries that sit near their deadline.
                     key = (m["slo_pass"] - 2e-4 * m["p95_latency"], m["slo_pass"],
                            min(m["tenant_pass"]))
                     if best is None or key > best[0]:
-                        best = (key, float(u), profile, e, p, a)
-            key, u, profile, e, p, a = best
-            # apply the queue-state refinement to the selected action, then the per-tenant quota
-            e, p2, a = self._policy_for_regime(pilot, rates, r, u, profile, debt_rounds=debt_rounds)
-            e, a = self._quota_refine(pilot, rates, r, u, profile, e, p2, a,
-                                      debt_rounds=debt_rounds)
-            m2 = core.eval_serving_regime(pilot, e, p2, a, r)
+                        best = (key, float(u), profile, e, p, a, w, ed)
+            key, u, profile, e, p, a, w, ed = best
+            # rebuild the selected action with the queue-state (debt) refinement applied
+            e, p2, a, w, ed = self._candidate(pilot, rates, r, u, profile,
+                                              debt_rounds=debt_rounds)
+            if not profile.startswith("per_window"):
+                e, a = self._quota_refine(pilot, rates, r, u, profile, e, p2, a,
+                                          debt_rounds=debt_rounds)
+                w = ed = None
+            m2 = core.eval_serving_regime(pilot, e, p2, a, r,
+                                          admission_windows=w, window_edges=ed)
             choices.append({"regime": int(r), "rho": float(pilot["rhos"][r]),
                             "u": float(u), "profile": profile,
+                            "W": (int(w.shape[2]) if w is not None else None),
                             "pilot_slo_pass": float(m2["slo_pass"]),
                             "pilot_worst_tenant": float(min(m2["tenant_pass"]))})
             effs[r], adms[r], pri_all[r] = e, a, p2
-        return {"efforts": effs, "priority": pri_all, "admission": adms,
-                "u_target": float(choices[-1]["u"]),
-                "u_target_per_regime": [c["u"] for c in choices],
-                "profile_per_regime": [c["profile"] for c in choices],
-                "calibration": choices}
-
+            win_list[r], edge_list[r] = w, ed
+        out = {"efforts": effs, "priority": pri_all, "admission": adms,
+               "u_target": float(choices[-1]["u"]),
+               "u_target_per_regime": [c["u"] for c in choices],
+               "profile_per_regime": [c["profile"] for c in choices],
+               "calibration": choices}
+        if any(w is not None for w in win_list):
+            W = max(w.shape[2] for w in win_list if w is not None)
+            W = 8 if W <= 8 else W
+            win_arr = np.zeros((nR, T, nq, W), dtype=bool)
+            edge_arr = np.zeros((nR, W + 1), dtype=np.float64)
+            for r in range(nR):
+                if win_list[r] is None:
+                    win_arr[r] = True
+                    edge_arr[r] = self._window_edges(pilot["arrival"][r], W)
+                else:
+                    win_arr[r], edge_arr[r] = self._upsample_windows(win_list[r],
+                                                                     edge_list[r], W)
+            out["admission_windows"] = win_arr
+            out["window_edges"] = edge_arr
+        return out
 
 # =========================================================================== #
 # Quality

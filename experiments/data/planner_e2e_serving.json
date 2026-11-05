@@ -333,6 +333,7 @@
       "rho": 0.7,
       "u": 0.94,
       "profile": "per_query",
+      "W": null,
       "pilot_slo_pass": 0.83975,
       "pilot_worst_tenant": 0.339
      },
@@ -341,6 +342,7 @@
       "rho": 1.0,
       "u": 0.85,
       "profile": "per_query",
+      "W": null,
       "pilot_slo_pass": 0.669875,
       "pilot_worst_tenant": 0.0
      },
@@ -349,6 +351,7 @@
       "rho": 1.15,
       "u": 0.94,
       "profile": "per_query",
+      "W": null,
       "pilot_slo_pass": 0.6735625,
       "pilot_worst_tenant": 0.0
      },
@@ -357,6 +360,7 @@
       "rho": 1.6,
       "u": 1.04,
       "profile": "per_query",
+      "W": null,
       "pilot_slo_pass": 0.5829375,
       "pilot_worst_tenant": 0.0
      },
@@ -365,6 +369,7 @@
       "rho": 2.0,
       "u": 0.98,
       "profile": "per_tenant",
+      "W": null,
       "pilot_slo_pass": 0.5001875,
       "pilot_worst_tenant": 0.0
      },
@@ -373,6 +378,7 @@
       "rho": 2.5,
       "u": 1.0,
       "profile": "per_query",
+      "W": null,
       "pilot_slo_pass": 0.42425,
       "pilot_worst_tenant": 0.0
      },
@@ -381,7 +387,141 @@
       "rho": 3.0,
       "u": 0.95,
       "profile": "per_tenant",
+      "W": null,
       "pilot_slo_pass": 0.3881875,
+      "pilot_worst_tenant": 0.0
+     }
+    ]
+   },
+   "planner_windowed": {
+    "slo_pass": 0.5380714285714285,
+    "slo_pass_worst": 0.385375,
+    "slo_pass_overload": 0.43135937500000004,
+    "tenant_pass_worst": 0.0,
+    "p95_latency": 23.91807120186942,
+    "p99_latency": 93.60372924804688,
+    "recall_slo": 1.0,
+    "goodput_qps": 2903.4141712102837,
+    "served_frac": 0.5529196428571429,
+    "per_regime": {
+     "rhos": [
+      0.7,
+      1.0,
+      1.15,
+      1.6,
+      2.0,
+      2.5,
+      3.0
+     ],
+     "slo_pass": [
+      0.6921875,
+      0.6753125,
+      0.6735625,
+      0.493,
+      0.4105625,
+      0.4365,
+      0.385375
+     ],
+     "worst_tenant_pass": [
+      0.3295,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "served_frac": [
+      0.7118125,
+      0.68375,
+      0.6735625,
+      0.5255625,
+      0.4205,
+      0.44825,
+      0.407
+     ]
+    },
+    "u_target": 0.85,
+    "u_target_per_regime": [
+     0.94,
+     0.85,
+     0.94,
+     0.94,
+     0.8,
+     0.9,
+     0.85
+    ],
+    "profile_per_regime": [
+     "per_window4",
+     "per_window8",
+     "per_query",
+     "per_window4",
+     "per_window4",
+     "per_window8",
+     "per_window8"
+    ],
+    "calibration": [
+     {
+      "regime": 0,
+      "rho": 0.7,
+      "u": 0.94,
+      "profile": "per_window4",
+      "W": 4,
+      "pilot_slo_pass": 0.879375,
+      "pilot_worst_tenant": 0.4165
+     },
+     {
+      "regime": 1,
+      "rho": 1.0,
+      "u": 0.85,
+      "profile": "per_window8",
+      "W": 8,
+      "pilot_slo_pass": 0.726625,
+      "pilot_worst_tenant": 0.0
+     },
+     {
+      "regime": 2,
+      "rho": 1.15,
+      "u": 0.94,
+      "profile": "per_query",
+      "W": null,
+      "pilot_slo_pass": 0.6735625,
+      "pilot_worst_tenant": 0.0
+     },
+     {
+      "regime": 3,
+      "rho": 1.6,
+      "u": 0.94,
+      "profile": "per_window4",
+      "W": 4,
+      "pilot_slo_pass": 0.5995625,
+      "pilot_worst_tenant": 0.0
+     },
+     {
+      "regime": 4,
+      "rho": 2.0,
+      "u": 0.8,
+      "profile": "per_window4",
+      "W": 4,
+      "pilot_slo_pass": 0.534125,
+      "pilot_worst_tenant": 0.0
+     },
+     {
+      "regime": 5,
+      "rho": 2.5,
+      "u": 0.9,
+      "profile": "per_window8",
+      "W": 8,
+      "pilot_slo_pass": 0.4798125,
+      "pilot_worst_tenant": 0.0
+     },
+     {
+      "regime": 6,
+      "rho": 3.0,
+      "u": 0.85,
+      "profile": "per_window8",
+      "W": 8,
+      "pilot_slo_pass": 0.4163125,
       "pilot_worst_tenant": 0.0
      }
     ]
@@ -822,6 +962,7 @@
       "rho": 0.7,
       "u": 0.7,
       "profile": "per_query",
+      "W": null,
       "pilot_slo_pass": 0.9624375,
       "pilot_worst_tenant": 0.6995
      },
@@ -830,6 +971,7 @@
       "rho": 1.0,
       "u": 0.94,
       "profile": "per_query",
+      "W": null,
       "pilot_slo_pass": 0.962375,
       "pilot_worst_tenant": 0.699
      },
@@ -838,6 +980,7 @@
       "rho": 1.15,
       "u": 1.03,
       "profile": "per_query",
+      "W": null,
       "pilot_slo_pass": 0.939875,
       "pilot_worst_tenant": 0.6985
      },
@@ -846,6 +989,7 @@
       "rho": 1.6,
       "u": 0.95,
       "profile": "per_query",
+      "W": null,
       "pilot_slo_pass": 0.799125,
       "pilot_worst_tenant": 0.0
      },
@@ -854,6 +998,7 @@
       "rho": 2.0,
       "u": 1.035,
       "profile": "per_tenant",
+      "W": null,
       "pilot_slo_pass": 0.7090625,
       "pilot_worst_tenant": 0.0
      },
@@ -862,6 +1007,7 @@
       "rho": 2.5,
       "u": 1.04,
       "profile": "per_query",
+      "W": null,
       "pilot_slo_pass": 0.657375,
       "pilot_worst_tenant": 0.0
      },
@@ -870,7 +1016,141 @@
       "rho": 3.0,
       "u": 1.005,
       "profile": "per_query",
+      "W": null,
       "pilot_slo_pass": 0.5849375,
+      "pilot_worst_tenant": 0.0
+     }
+    ]
+   },
+   "planner_windowed": {
+    "slo_pass": 0.7685803571428569,
+    "slo_pass_worst": 0.5681875,
+    "slo_pass_overload": 0.64590625,
+    "tenant_pass_worst": 0.0,
+    "p95_latency": 20.282248088291713,
+    "p99_latency": 48.765571457999094,
+    "recall_slo": 1.0,
+    "goodput_qps": 4191.698793896124,
+    "served_frac": 0.7702767857142856,
+    "per_regime": {
+     "rhos": [
+      0.7,
+      1.0,
+      1.15,
+      1.6,
+      2.0,
+      2.5,
+      3.0
+     ],
+     "slo_pass": [
+      0.9624375,
+      0.9624375,
+      0.8715625,
+      0.778625,
+      0.6470625,
+      0.58975,
+      0.5681875
+     ],
+     "worst_tenant_pass": [
+      0.6995,
+      0.6995,
+      0.578,
+      0.3065,
+      0.0645,
+      0.0,
+      0.0
+     ],
+     "served_frac": [
+      0.9624375,
+      0.9624375,
+      0.8738125,
+      0.7808125,
+      0.6476875,
+      0.5965625,
+      0.5681875
+     ]
+    },
+    "u_target": 0.94,
+    "u_target_per_regime": [
+     0.7,
+     0.94,
+     1.0,
+     0.99,
+     0.9,
+     0.85,
+     0.94
+    ],
+    "profile_per_regime": [
+     "per_query",
+     "per_query",
+     "per_window8",
+     "per_window8",
+     "per_window8",
+     "per_window8",
+     "per_window8"
+    ],
+    "calibration": [
+     {
+      "regime": 0,
+      "rho": 0.7,
+      "u": 0.7,
+      "profile": "per_query",
+      "W": null,
+      "pilot_slo_pass": 0.9624375,
+      "pilot_worst_tenant": 0.6995
+     },
+     {
+      "regime": 1,
+      "rho": 1.0,
+      "u": 0.94,
+      "profile": "per_query",
+      "W": null,
+      "pilot_slo_pass": 0.962375,
+      "pilot_worst_tenant": 0.699
+     },
+     {
+      "regime": 2,
+      "rho": 1.15,
+      "u": 1.0,
+      "profile": "per_window8",
+      "W": 8,
+      "pilot_slo_pass": 0.95775,
+      "pilot_worst_tenant": 0.699
+     },
+     {
+      "regime": 3,
+      "rho": 1.6,
+      "u": 0.99,
+      "profile": "per_window8",
+      "W": 8,
+      "pilot_slo_pass": 0.8656875,
+      "pilot_worst_tenant": 0.3055
+     },
+     {
+      "regime": 4,
+      "rho": 2.0,
+      "u": 0.9,
+      "profile": "per_window8",
+      "W": 8,
+      "pilot_slo_pass": 0.7414375,
+      "pilot_worst_tenant": 0.043
+     },
+     {
+      "regime": 5,
+      "rho": 2.5,
+      "u": 0.85,
+      "profile": "per_window8",
+      "W": 8,
+      "pilot_slo_pass": 0.658375,
+      "pilot_worst_tenant": 0.0
+     },
+     {
+      "regime": 6,
+      "rho": 3.0,
+      "u": 0.94,
+      "profile": "per_window8",
+      "W": 8,
+      "pilot_slo_pass": 0.6256875,
       "pilot_worst_tenant": 0.0
      }
     ]
@@ -1262,6 +1542,7 @@
       "rho": 0.7,
       "u": 0.7,
       "profile": "per_query",
+      "W": null,
       "pilot_slo_pass": 0.9624375,
       "pilot_worst_tenant": 0.6995
      },
@@ -1270,6 +1551,7 @@
       "rho": 1.0,
       "u": 0.7,
       "profile": "per_query",
+      "W": null,
       "pilot_slo_pass": 0.9624375,
       "pilot_worst_tenant": 0.6995
      },
@@ -1278,6 +1560,7 @@
       "rho": 1.15,
       "u": 0.7,
       "profile": "per_query",
+      "W": null,
       "pilot_slo_pass": 0.9624375,
       "pilot_worst_tenant": 0.6995
      },
@@ -1286,6 +1569,7 @@
       "rho": 1.6,
       "u": 0.8,
       "profile": "per_query",
+      "W": null,
       "pilot_slo_pass": 0.9624375,
       "pilot_worst_tenant": 0.6995
      },
@@ -1294,6 +1578,7 @@
       "rho": 2.0,
       "u": 0.94,
       "profile": "per_query",
+      "W": null,
       "pilot_slo_pass": 0.9624375,
       "pilot_worst_tenant": 0.6995
      },
@@ -1302,6 +1587,7 @@
       "rho": 2.5,
       "u": 1.01,
       "profile": "per_query",
+      "W": null,
       "pilot_slo_pass": 0.928125,
       "pilot_worst_tenant": 0.6995
      },
@@ -1310,8 +1596,142 @@
       "rho": 3.0,
       "u": 1.005,
       "profile": "per_query",
+      "W": null,
       "pilot_slo_pass": 0.8376875,
       "pilot_worst_tenant": 0.6205
+     }
+    ]
+   },
+   "planner_windowed": {
+    "slo_pass": 0.9005178571428569,
+    "slo_pass_worst": 0.7214375,
+    "slo_pass_overload": 0.8540781249999999,
+    "tenant_pass_worst": 0.3545,
+    "p95_latency": 5.509009395326887,
+    "p99_latency": 12.524898256574359,
+    "recall_slo": 1.0,
+    "goodput_qps": 5177.179687762692,
+    "served_frac": 0.9005178571428569,
+    "per_regime": {
+     "rhos": [
+      0.7,
+      1.0,
+      1.15,
+      1.6,
+      2.0,
+      2.5,
+      3.0
+     ],
+     "slo_pass": [
+      0.9624375,
+      0.9624375,
+      0.9624375,
+      0.9624375,
+      0.9624375,
+      0.7214375,
+      0.77
+     ],
+     "worst_tenant_pass": [
+      0.6995,
+      0.6995,
+      0.6995,
+      0.6995,
+      0.6995,
+      0.5755,
+      0.3545
+     ],
+     "served_frac": [
+      0.9624375,
+      0.9624375,
+      0.9624375,
+      0.9624375,
+      0.9624375,
+      0.7214375,
+      0.77
+     ]
+    },
+    "u_target": 1.0,
+    "u_target_per_regime": [
+     0.7,
+     0.7,
+     0.7,
+     0.8,
+     0.94,
+     0.99,
+     1.0
+    ],
+    "profile_per_regime": [
+     "per_query",
+     "per_query",
+     "per_query",
+     "per_query",
+     "per_query",
+     "per_window4",
+     "per_window8"
+    ],
+    "calibration": [
+     {
+      "regime": 0,
+      "rho": 0.7,
+      "u": 0.7,
+      "profile": "per_query",
+      "W": null,
+      "pilot_slo_pass": 0.9624375,
+      "pilot_worst_tenant": 0.6995
+     },
+     {
+      "regime": 1,
+      "rho": 1.0,
+      "u": 0.7,
+      "profile": "per_query",
+      "W": null,
+      "pilot_slo_pass": 0.9624375,
+      "pilot_worst_tenant": 0.6995
+     },
+     {
+      "regime": 2,
+      "rho": 1.15,
+      "u": 0.7,
+      "profile": "per_query",
+      "W": null,
+      "pilot_slo_pass": 0.9624375,
+      "pilot_worst_tenant": 0.6995
+     },
+     {
+      "regime": 3,
+      "rho": 1.6,
+      "u": 0.8,
+      "profile": "per_query",
+      "W": null,
+      "pilot_slo_pass": 0.9624375,
+      "pilot_worst_tenant": 0.6995
+     },
+     {
+      "regime": 4,
+      "rho": 2.0,
+      "u": 0.94,
+      "profile": "per_query",
+      "W": null,
+      "pilot_slo_pass": 0.9624375,
+      "pilot_worst_tenant": 0.6995
+     },
+     {
+      "regime": 5,
+      "rho": 2.5,
+      "u": 0.99,
+      "profile": "per_window4",
+      "W": 4,
+      "pilot_slo_pass": 0.951,
+      "pilot_worst_tenant": 0.6995
+     },
+     {
+      "regime": 6,
+      "rho": 3.0,
+      "u": 1.0,
+      "profile": "per_window8",
+      "W": 8,
+      "pilot_slo_pass": 0.8893125,
+      "pilot_worst_tenant": 0.4375
      }
     ]
    },

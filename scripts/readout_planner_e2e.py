@@ -141,6 +141,11 @@ def readout_serving(path):
         fixed = [n for n in PLANS_SERVING if n.startswith("serving-") and n in cd]
         best = max(fixed, key=lambda n: (cd[n]["slo_pass"], cd[n]["slo_pass_worst"]))
         b, p = cd[best], cd["planner"]
+        pw = cd.get("planner_windowed")
+        if pw is not None:
+            print(f"  cores={cap} windowed-action ablation: mean={pw['slo_pass']:.4f} "
+                  f"worst={pw['slo_pass_worst']:.4f} p95={pw['p95_latency']:.1f} "
+                  f"p99={pw['p99_latency']:.1f} profiles={pw.get('profile_per_regime')}")
         print(f"  cores={cap}: best fixed={best} | dmean={p['slo_pass']-b['slo_pass']:+.4f} "
               f"dworst={p['slo_pass_worst']-b['slo_pass_worst']:+.4f} "
               f"doverload={p['slo_pass_overload']-b['slo_pass_overload']:+.4f} | "

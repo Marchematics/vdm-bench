@@ -412,6 +412,19 @@ def main_serving(args):
         log(f"  cores={cores} planner            pass={m['slo_pass']:.4f} "
             f"worst={m['slo_pass_worst']:.4f} overload={m['slo_pass_overload']:.4f} "
             f"u={pol['u_target']:.3f} profiles={pol.get('profile_per_regime')}", t0)
+        # action-space ablation: the same planner with the optional time-windowed admission
+        # profiles enabled (off by default; per-window decisions on the pilot overfit -- see
+        # experiments/unified_planner_2026-11-05.md)
+        polw = planner.ServingPlanner().plan(pilot_c, window_profiles=True)
+        mw = core.eval_serving(polw, wl_c)
+        res["planner_windowed"] = _serving_row(mw)
+        res["planner_windowed"]["u_target"] = polw["u_target"]
+        res["planner_windowed"]["u_target_per_regime"] = polw.get("u_target_per_regime")
+        res["planner_windowed"]["profile_per_regime"] = polw.get("profile_per_regime")
+        res["planner_windowed"]["calibration"] = polw.get("calibration", [])
+        log(f"  cores={cores} planner(windows) pass={mw['slo_pass']:.4f} "
+            f"worst={mw['slo_pass_worst']:.4f} overload={mw['slo_pass_overload']:.4f} "
+            f"p95={mw['p95_latency']:.1f} profiles={polw.get('profile_per_regime')}", t0)
         # marginal value of the calibrated scalar: the whole sensitivity curve
         sens = []
         for u in planner.ServingPlanner.U_GRID:

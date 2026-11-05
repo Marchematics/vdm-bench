@@ -332,6 +332,53 @@ weighted to the tail (p95 penalty 5e-4) and then p95/p99 are 11.3/31.4 ms but rh
 0.678. So the two criteria are in tension under this metric definition; the pass recovery is bought
 with the tail, and both extremes are recorded in `planner_u_sensitivity` / the scorer's penalty.
 
+### Time-windowed admission: interface shipped, the pass/tail trade is not closed
+
+The evaluator's `admission` was a static `(R, T, nq)` mask, so no policy could condition
+admission on *when* a query arrives — the suggested cause of the pass/tail trade (ρ=2.0 pass
+needs serving marginally-late queries, which shoves p95). The interface now accepts an optional
+**time-windowed admission**: `admission_windows` of shape `(R, T, nq, W)` (or load-blind
+`(T, nq, W)`) plus `window_edges` of shape `(R, W+1)` (or `(W+1,)`), where the effective
+admission is `admission & window[arrival-window]`. Edges in `[0,1]` are trace-relative quantile
+fractions resolved by the evaluator on whichever trace is scored; values > 1 are absolute
+seconds. Omitting the field is the old path bit-for-bit — asserted: every pre-existing row
+(the five fixed submissions including their static-admission behaviour, the planner row and the
+single-`u` sensitivity points) reproduces the parent commit exactly. The format is documented in
+the README's submission-format section with a JSON example. `ServingPlanner` can emit
+window-indexed admission (`plan(..., window_profiles=True)`, W=4/8 equal-time windows chosen by
+the same cost model); the harness stores it as the `planner_windowed` ablation row.
+
+Measured (same sweep, 7 regimes × 4/8/16; static selection is the parent commit's row):
+
+| 8-core planner | 0.70 | 1.00 | 1.15 | 1.60 | 2.00 | 2.50 | 3.00 | mean | worst | overload | p95 ms | p99 ms |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| static action selection | 0.962 | 0.962 | 0.940 | 0.799 | **0.713** | 0.671 | 0.585 | **0.8047** | **0.5849** | **0.6920** | 28.1 | 73.2 |
+| + time-windowed profiles | 0.962 | 0.962 | 0.872 | 0.779 | 0.647 | 0.590 | 0.568 | 0.7686 | 0.5682 | 0.6459 | **20.3** | **48.8** |
+
+At 4 cores the ablation is 0.5381 mean (static 0.5743); at 16 cores 0.9005 (static 0.9398).
+
+**No — both are not recovered.** Enabling windowed admission moves the policy *along* the same
+pass/tail frontier (p95 28.1 → 20.3 ms, p99 73.2 → 48.8 ms, but ρ=2.0 0.713 → 0.647 and mean
+0.8047 → 0.7686); it does not push the frontier out. Two mechanisms, both measured:
+
+1. **Selection overfits the pilot.** Per-window admission decisions are calibrated on the pilot
+   queue state; the held-out trace has a different per-window realisation, and the windowed
+   policy's pilot pass (e.g. 0.741 at ρ=2.0) does not transfer (held-out 0.647), while the
+   static action selection's few global parameters do (pilot 0.709 → held-out 0.713).
+2. **The trade is structural in the metric, not in the interface.** `p95`/`p99` are computed
+   over *served* queries. The last pass points recovered at ρ=2.0 (0.678 → 0.713) are precisely
+   queries whose latency is near their deadline: serving them raises the tail; shedding them
+   loses the pass. Windowing changes *when* admission is decided, not the queue — a query that
+   arrives late cannot be served early. To satisfy both criteria simultaneously the tail would
+   have to be defined differently (e.g. over all queries, or latency capped at deadline), or
+   the policy would need to *reorder* work across time (arrival-order-aware prioritisation),
+   which is a scheduling primitive, not an admission one — and the evaluator's `priority` is
+   already a static per-query rank.
+
+So the serving axis' remaining trade is a property of the pass/tail metric pair, not a missing
+policy interface: the interface gap is closed and backward compatible; the frontier did not
+move.
+
 ### What is measured vs not measured
 
 **Line, explicitly: measured here are the quality error/coverage/contract/evaluation-count columns

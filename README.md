@@ -69,6 +69,26 @@ trace:
 * **Scheduling and admission are part of the submission.** `priority[i][j]` (higher = served
   first; omitted = FCFS), `admission[i][j]` (shed queries fail their contract) and
   `reservation[i]` (opt into per-tenant core partitions) are first-class decisions.
+  *Optional time-windowed admission:* a submission may additionally return
+  `admission_windows` of shape `(R, T, nq, W)` (or load-blind `(T, nq, W)`) plus
+  `window_edges` of shape `(R, W+1)` (or `(W+1,)`). Window `w` admits query `(i,j)` iff
+  `admission_windows[r,i,j,w]` is set, where `w` is the window its arrival falls into; the
+  effective admission is `admission & window`, so omitting `admission_windows` reproduces the
+  old static-mask numbers exactly. Edges in `[0, 1]` are **trace-relative quantile fractions**
+  (the evaluator resolves them on whichever trace it scores, so the policy transfers from the
+  pilot to the held-out trace); values above 1 are absolute seconds. Window `w` covers
+  `edge[w] <= arrival < edge[w+1]` (last edge inclusive). Tiny example — one regime, two
+  tenants, two queries per tenant, two windows, the second query of tenant 0 shed in window 1:
+
+```json
+{
+  "efforts": [[3, 3], [3, 3]],
+  "admission": [[true, true], [true, true]],
+  "admission_windows": [[[[true, true], [true, false]],
+                         [[true, true], [true, true]]]],
+  "window_edges": [[0.0, 0.5, 1.0]]
+}
+```
 
 **Measured ablation (SIFT, `workloads/sift`, 7-regime sweep, skew 4:1).** Our re-measurement
 of the shipped reference submissions (`run_reference.py --only serving`); all numbers are
